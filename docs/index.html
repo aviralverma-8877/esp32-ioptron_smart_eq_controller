@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ESP32 iOptron SmartEQ Controller — Web Flasher</title>
+<script type="module"
+        src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2.5rem 1.25rem 4rem;
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #d7dce5; background: #0b0f1a;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  main { width: 100%; max-width: 640px; }
+  h1 { font-size: 1.5rem; margin: 0 0 .25rem; color: #fff; letter-spacing: .01em; }
+  .sub { color: #8b94a7; margin: 0 0 2rem; }
+  .card {
+    background: #121826; border: 1px solid #232b3d; border-radius: 12px;
+    padding: 1.5rem; margin: 1rem 0;
+  }
+  .flash { text-align: center; }
+  esp-web-install-button { --esp-tools-button-color: #0b0f1a; --esp-tools-button-text-color: #ffd15c; }
+  button.fallback {
+    background: #ffd15c; color: #0b0f1a; border: 0; border-radius: 8px;
+    font: 600 15px/1 inherit; padding: .8rem 1.4rem; cursor: pointer;
+  }
+  .unsupported { display: none; color: #ff8c8c; font-size: .9rem; margin-top: .75rem; }
+  h2 { font-size: 1rem; color: #fff; margin: 1.5rem 0 .5rem; }
+  ol, ul { margin: .5rem 0; padding-left: 1.25rem; }
+  li { margin: .3rem 0; }
+  code, pre {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .86em;
+    background: #0b0f1a; border: 1px solid #232b3d; border-radius: 6px;
+  }
+  code { padding: .1rem .35rem; }
+  pre { padding: .8rem 1rem; overflow-x: auto; }
+  a { color: #ffd15c; }
+  .muted { color: #8b94a7; font-size: .88rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; margin: .5rem 0; }
+  td, th { border: 1px solid #232b3d; padding: .4rem .6rem; text-align: left; }
+  th { color: #fff; }
+</style>
+</head>
+<body>
+<main>
+  <h1>ESP32 iOptron SmartEQ Controller</h1>
+  <p class="sub">Bluetooth ⇄ RS-232 bridge · status TFT · automatic GPS time &amp; site sync</p>
+
+  <div class="card flash">
+    <esp-web-install-button manifest="./manifest.json">
+      <button slot="activate" class="fallback">Connect &amp; Flash</button>
+      <span slot="unsupported" class="unsupported">
+        Your browser can't do this — use desktop <b>Chrome</b> or <b>Edge</b>
+        (Web Serial isn't available on Firefox, Safari, or mobile).
+      </span>
+      <span slot="not-allowed" class="unsupported">
+        This page must be served over HTTPS.
+      </span>
+    </esp-web-install-button>
+    <p class="muted" id="ver">firmware: loading…</p>
+  </div>
+
+  <h2>How to flash</h2>
+  <ol>
+    <li>Plug the board into your computer with a <b>USB-C data cable</b>.</li>
+    <li>Click <b>Connect &amp; Flash</b> and pick the <code>USB-SERIAL CH340</code> port.</li>
+    <li>The CH340 auto-reset circuit drops the ESP32 into its bootloader on its
+        own — no button holding needed. Wait for it to finish and reboot.</li>
+    <li>On first install, choose <b>Erase device</b> if offered (clears any old
+        Bluetooth pairing / NVS).</li>
+  </ol>
+  <p class="muted">After flashing: pair with Bluetooth device <b>“SmartEQ-RJ9”</b>
+     (no PIN) and open the serial port it creates at <b>9600&nbsp;8-N-1</b>.</p>
+
+  <h2>What gets written</h2>
+  <table>
+    <tr><th>Offset</th><th>Region</th></tr>
+    <tr><td><code>0x1000</code></td><td>2nd-stage bootloader</td></tr>
+    <tr><td><code>0x8000</code></td><td>partition table (<code>huge_app</code>, 3 MB app / no OTA)</td></tr>
+    <tr><td><code>0xe000</code></td><td>boot_app0</td></tr>
+    <tr><td><code>0x10000</code></td><td>application</td></tr>
+  </table>
+  <p class="muted">All four are combined into
+     <a href="firmware/smarteq-rj9-merged.bin">smarteq-rj9-merged.bin</a>
+     (flash to <code>0x0</code>), rebuilt on every <code>pio run</code>.</p>
+
+  <h2>Prefer the command line?</h2>
+  <pre>pio run -t upload            # from the platformio/ folder
+
+# or, with just the merged image + esptool:
+esptool.py --chip esp32 write_flash 0x0 smarteq-rj9-merged.bin</pre>
+
+  <p class="muted" style="margin-top:2rem">
+    Source &amp; docs:
+    <a href="https://github.com/aviralverma-8877/esp32-ioptron_smart_eq_controller">
+      github.com/aviralverma-8877/esp32-ioptron_smart_eq_controller</a>
+  </p>
+</main>
+
+<script>
+  fetch('./manifest.json').then(r => r.json()).then(m => {
+    document.getElementById('ver').textContent = 'firmware version: ' + m.version;
+  }).catch(() => { document.getElementById('ver').textContent = ''; });
+</script>
+</body>
+</html>

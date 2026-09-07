@@ -1,0 +1,17 @@
+{
+  "name": "ESP32 iOptron SmartEQ Controller",
+  "version": "2026.09.07-0706",
+  "home_assistant_domain": "",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32",
+      "parts": [
+        {
+          "path": "firmware/smarteq-rj9-merged.bin",
+          "offset": 0
+        }
+      ]
+    }
+  ]
+}

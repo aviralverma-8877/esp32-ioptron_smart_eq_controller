@@ -67,10 +67,23 @@ local time, longitude and latitude (`:SC`, `:SL`, `:Sg`, `:St`).
    sync is fully automatic and needs no button. BTN1 is only an optional manual
    re-sync trigger.
 
-## Build & flash
+## Flash from the browser
+
+No toolchain needed — open the web flasher in **desktop Chrome or Edge**, plug
+the board in over USB-C, and click *Connect & Flash*:
+
+> **https://aviralverma-8877.github.io/esp32-ioptron_smart_eq_controller/**
+
+It lives in [`docs/`](docs/) (GitHub Pages, `main` branch → `/docs`) and uses
+[ESP Web Tools](https://esphome.github.io/esp-web-tools/). Every `pio run`
+regenerates the single-image `docs/firmware/smarteq-rj9-merged.bin` (flash to
+`0x0`) via [`scripts/merge_bin.py`](scripts/merge_bin.py) and bumps
+`docs/manifest.json`.
+
+## Build & flash locally
 
 ```bash
-pio run                       # build (huge_app.csv partition)
+pio run                       # build (huge_app.csv partition) + refresh docs/firmware
 pio run -t upload             # flash over USB-C (CH340 auto-reset)
 pio device monitor            # watch [state] lines @ 115200
 ```
@@ -99,10 +112,25 @@ pio device monitor            # watch [state] lines @ 115200
 Setters used by the GPS sync: `:SG±MMM#` (kept), `:SDS0/1#` (kept), `:SCYYMMDD#`,
 `:SLHHMMSS#`, `:Sg±TTTTTTTT#`, `:St±TTTTTTTT#` (0.01″) — each returns `1` on OK.
 
+## Source layout
+
+| File | Job |
+|---|---|
+| `src/config.h` | build-time config (pins/bauds), `LOG` macro, TFT colours |
+| `src/message.*` | transient footer status line (`setMsg`) |
+| `src/mount.*` | RS-232 link: `askMount`, iOptron reply decoders, idle poll loop, link tracking |
+| `src/bt_bridge.*` | `BluetoothSerial` SPP endpoint + transparent byte pumping |
+| `src/gps.*` | NEO-6M UART + TinyGPS++ + lock / status |
+| `src/gps_sync.*` | automatic + manual (BTN1) GPS→mount time/site sync |
+| `src/display.*` | ST7789 + all rendering (changed-field redraw) |
+| `src/main.cpp` | `setup()` / `loop()` wiring only |
+| `scripts/merge_bin.py` | post-build: merged image + manifest for the web flasher |
+| `docs/` | GitHub Pages web flasher (`index.html`, `manifest.json`, `firmware/`) |
+
 ## Notes
 
 - Stateless bridge, no flow control (RTS/CTS/DTR not wired on this board).
 - `pump()` is bounded by `available()`, so `loop()` never blocks on the bridge.
-- Button press is caught by a pin interrupt so a poll-blocked `loop()` can't miss it.
+- BTN1 press is caught by a pin interrupt so a poll-blocked `loop()` can't miss it.
 - TFT redraws only changed fields — no flicker.
 - `huge_app.csv` partition (3 MB app, no OTA) — Bluedroid SPP is large.
