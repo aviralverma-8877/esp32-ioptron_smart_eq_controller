@@ -5,9 +5,11 @@
 
 Stages
   1. catalog.csv  (committed)  Messier objects from OpenNGC + bright stars from
-                               SIMBAD (stars.txt). Only rebuilt on request.
-  2. images       (cached)     160x160 DSS2-colour cutout per object from CDS
-                               hips2fits, converted to raw RGB565 (*.565).
+                               SIMBAD (stars.txt) + planets/Moon (positions are
+                               computed on the device). Only rebuilt on request.
+  2. images       (cached)     DSS2-colour cutout per object from CDS hips2fits
+                               (planets: NASA images via Wikimedia Commons),
+                               converted to 96x96 raw RGB565 (*.565).
   3. card folder  build/sdcard/card/SMARTEQ/...
   4. outputs      docs/sdcard/smarteq-sd.img.zip    flash with Etcher / Rufus
                   docs/sdcard/smarteq-sd-files.zip  or unzip onto a FAT32 card
@@ -48,6 +50,9 @@ OPENNGC   = "https://raw.githubusercontent.com/mattiaverga/OpenNGC/master/databa
 SESAME    = "https://cds.unistra.fr/cgi-bin/nph-sesame/-oxp/S?"
 HIPS2FITS = "https://alasky.cds.unistra.fr/hips-image-services/hips2fits"
 HIPS      = "CDS/P/DSS2/color"
+COMMONS   = "https://commons.wikimedia.org/wiki/Special:FilePath/"
+USER_AGENT = ("SmartEQ-sdbuild/1.0 "
+              "(+https://github.com/aviralverma-8877/esp32-ioptron_smart_eq_controller)")
 
 IMG_W = IMG_H = 96              # left-panel thumbnail on the object page
 FETCH_PX      = 160             # cutout size requested from hips2fits
@@ -64,6 +69,20 @@ TYPE_NAMES = {
     "HII": "Nebula", "EmN": "Nebula", "RfN": "Nebula", "SNR": "SN remnant",
     "Cl+N": "Cl+Nebula", "**": "Double", "*Ass": "Star cloud", "Other": "Asterism",
 }
+
+# Solar-system bodies: no fixed RA/Dec (the firmware's ephemeris computes them).
+# key, label, name, type, typical V mag, Commons image (NASA, public domain unless noted)
+PLANETS = [
+    ("P001", "Mercury", "Innermost planet", "Planet", "0.0",  "Mercury_in_true_color.jpg"),
+    ("P002", "Venus",   "Evening/morning star", "Planet", "-4.2", "Venus-real_color.jpg"),
+    ("P003", "Mars",    "The red planet", "Planet", "0.5",  "OSIRIS_Mars_true_color.jpg"),
+    ("P004", "Jupiter", "Gas giant", "Planet", "-2.3", "Jupiter_and_its_shrunken_Great_Red_Spot.jpg"),
+    ("P005", "Saturn",  "Ringed planet", "Planet", "0.6",  "Saturn_during_Equinox.jpg"),
+    ("P006", "Uranus",  "Ice giant", "Planet", "5.7",  "Uranus2.jpg"),
+    ("P007", "Neptune", "Ice giant", "Planet", "7.8",  "Neptune_Full.jpg"),
+    ("P008", "Moon",    "Earth's Moon", "Moon", "-12.7", "FullMoon2010.jpg"),  # G. H. Revera, CC-BY-SA-3.0
+]
+SOLAR = {"Planet", "Moon"}
 
 # gaps in OpenNGC: names for objects without a common name, V magnitudes it lacks
 NAME_FIX = {40: "Winnecke 4", 102: "Spindle Galaxy"}
@@ -115,8 +134,16 @@ def messier_rows():
 
 
 def sesame(ident):
-    r = requests.get(SESAME + requests.utils.quote(ident), timeout=60)
-    r.raise_for_status()
+    for attempt in range(4):
+        try:
+            r = requests.get(SESAME + requests.utils.quote(ident), timeout=60)
+            r.raise_for_status()
+            break
+        except requests.RequestException as e:
+            if attempt == 3:
+                raise
+            print(f"  retry {ident}: {e}")
+            time.sleep(5 * (attempt + 1))
     root = ElementTree.fromstring(r.text)
     res = root.find(".//Resolver")
     if res is None or res.find("jradeg") is None:
@@ -146,8 +173,13 @@ def star_rows():
     return rows
 
 
+def planet_rows():
+    return [{"key": k, "label": l, "name": n, "type": t, "con": "", "mag": m,
+             "size": "", "ra": "", "dec": ""} for k, l, n, t, m, _ in PLANETS]
+
+
 def refresh_catalog():
-    rows = messier_rows() + star_rows()
+    rows = messier_rows() + star_rows() + planet_rows()
     with CATALOG.open("w", encoding="ascii", newline="\n") as f:
         f.write(HEADER + "\n")
         for r in rows:
@@ -174,6 +206,13 @@ def fov_deg(obj):
 
 def fetch_image(obj):
     jpg = CACHE / (obj["key"] + ".jpg")
+    if not jpg.exists() and obj["type"] in SOLAR:
+        name = next(p[5] for p in PLANETS if p[0] == obj["key"])
+        r = requests.get(COMMONS + name, params={"width": 240},
+                         headers={"User-Agent": USER_AGENT}, timeout=90)
+        r.raise_for_status()
+        jpg.write_bytes(r.content)
+        time.sleep(0.5)
     if not jpg.exists():
         params = {"hips": HIPS, "width": FETCH_PX, "height": FETCH_PX, "projection": "TAN",
                   "coordsys": "icrs", "fov": f"{fov_deg(obj):.4f}",
@@ -193,9 +232,13 @@ def fetch_image(obj):
     return jpg
 
 
-def to_rgb565(jpg):
-    img = Image.open(jpg).convert("RGB").resize((IMG_W, IMG_H), Image.LANCZOS)
-    img = ImageOps.autocontrast(img, cutoff=0.5)
+def to_rgb565(jpg, solar=False):
+    img = Image.open(jpg).convert("RGB")
+    if solar:                         # keep true colours, letterbox (Saturn's rings)
+        img = ImageOps.pad(img, (IMG_W, IMG_H), Image.LANCZOS, color=(0, 0, 0))
+    else:
+        img = img.resize((IMG_W, IMG_H), Image.LANCZOS)
+        img = ImageOps.autocontrast(img, cutoff=0.5)
     out = bytearray(b"R565" + struct.pack("<HH", IMG_W, IMG_H))
     px = img.tobytes()
     for i in range(0, len(px), 3):
@@ -211,6 +254,10 @@ REFLECTION  = {"M045", "M078"}       # blue dust: broadband only
 
 
 def scope_for(obj):
+    if obj["type"] == "Moon":
+        return "Any scope; ~600-1000mm frames the whole disc on APS-C"
+    if obj["type"] == "Planet":
+        return "127-200mm Mak/SCT at f/15-f/25 (2-3x Barlow)"
     if obj["type"] in ("Star", "Double"):
         return "Any scope; 80-150mm aperture at high power for detail"
     size = float(obj["size"]) if obj["size"] else 10.0
@@ -228,6 +275,8 @@ def scope_for(obj):
 
 
 def camera_for(obj):
+    if obj["type"] in SOLAR:
+        return "Planetary cam (IMX462/585), ADC for low planets"
     if obj["key"] in REFLECTION:
         return "Colour OSC + UV/IR cut (no narrowband)"
     if obj["type"] in EMISSION:
@@ -238,6 +287,10 @@ def camera_for(obj):
 
 
 def exposure_for(obj):
+    if obj["type"] == "Moon":
+        return "1-5 ms frames, stack best 20%; mosaic at long FL"
+    if obj["type"] == "Planet":
+        return "60-90s video at high fps, stack best 10%"
     if obj["type"] in ("Star", "Double"):
         return "0.1-2s frames, stack the best"
     mag = float(obj["mag"]) if obj["mag"] else 9.0
@@ -274,7 +327,9 @@ def card_files(objs):
             "Catalog: OpenNGC by Mattia Verga (CC-BY-SA-4.0) and SIMBAD, CDS Strasbourg.\r\n"
             "Images: DSS2 colour via CDS hips2fits. The Digitized Sky Surveys were\r\n"
             "produced at the Space Telescope Science Institute under U.S. Government\r\n"
-            "grant NAG W-2166. Non-commercial use with acknowledgement.\r\n").encode(),
+            "grant NAG W-2166. Non-commercial use with acknowledgement.\r\n"
+            "Planet images: NASA / JPL / ESA (public domain) via Wikimedia Commons;\r\n"
+            "Moon: Gregory H. Revera, CC-BY-SA-3.0.\r\n").encode(),
     }
     descs = load_descriptions()
     missing = [o["key"] for o in objs if o["key"] not in descs]
@@ -283,7 +338,7 @@ def card_files(objs):
     for i, o in enumerate(objs, 1):
         files[f"SMARTEQ/INFO/{o['key']}.TXT"] = info_text(o, descs)
         print(f"\r[images] {i}/{len(objs)} {o['key']}   ", end="", flush=True)
-        files[f"SMARTEQ/IMG/{o['key']}.565"] = to_rgb565(fetch_image(o))
+        files[f"SMARTEQ/IMG/{o['key']}.565"] = to_rgb565(fetch_image(o), o["type"] in SOLAR)
     print()
     return files
 

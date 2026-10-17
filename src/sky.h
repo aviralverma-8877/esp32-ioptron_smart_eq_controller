@@ -5,14 +5,15 @@
 //   /SMARTEQ/CATALOG.CSV     '#' comment lines, then
 //                            key,label,name,type,con,mag,size_arcmin,ra_hours_j2000,dec_deg_j2000
 //                            e.g. M031,M31,Andromeda Galaxy,Galaxy,And,3.4,177.8,0.712319,41.26906
-//                            mag / size may be empty. key 'Mnnn' = Messier, 'Snnn' = star.
+//                            mag / size may be empty. key 'Mnnn' = Messier, 'Snnn' = star,
+//                            'Pnnn' = planet / Moon (ra/dec empty: nnn-1 = ephem.h Body).
 //   /SMARTEQ/IMG/<key>.565   "R565" + u16 w + u16 h (LE) + w*h little-endian RGB565, row-major
 //   /SMARTEQ/INFO/<key>.TXT  CRLF lines: description / "Scope: .." / "Camera: .." / "Exposure: .."
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
 
-enum SkyCat : uint8_t { CAT_MESSIER = 0, CAT_STAR = 1, CAT_COUNT };
+enum SkyCat : uint8_t { CAT_MESSIER = 0, CAT_STAR = 1, CAT_PLANET = 2, CAT_COUNT };
 
 struct SkyObj {
   char    key[6];       // "M031" - also the image / info file basename
@@ -51,6 +52,11 @@ bool skyNowJD(double &jd);
 bool skySite(double &latDeg, double &lonDeg);
 // J2000 -> mean equinox of date (IAU 1976 precession). Mount GoTo uses JNow.
 void skyPrecess(double raH2000, double decD2000, double jd, double &raH, double &decD);
-// Altitude/azimuth (degrees, az from N through E) of a J2000 object right now.
+// Position of an object at `jd`, mean equinox of date (JNow - what GoTo needs):
+// precessed catalog position, or the ephemeris for planets / the Moon.
+bool skyObjNow(const SkyObj *o, double jd, double &raH, double &decD);
+// Angular distance (deg) between the object and the Sun right now. GoTo safety.
+bool skySunSep(const SkyObj *o, double &sepDeg);
+// Altitude/azimuth (degrees, az from N through E) of an object right now.
 // False if time or site is unknown.
 bool skyAltAz(const SkyObj *o, double &altDeg, double &azDeg);

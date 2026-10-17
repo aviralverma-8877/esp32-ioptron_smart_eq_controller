@@ -1,6 +1,7 @@
 // sky.cpp - SD-card sky database (hot-plug, catalog, info text, RGB565 thumbnails)
 // and the astronomy needed for GoTo: JD now, site, IAU 1976 precession, alt/az.
 #include "sky.h"
+#include "ephem.h"
 #include "config.h"
 #include "display.h"
 #include "mount.h"
@@ -20,8 +21,8 @@ static const uint32_t RETRY_MS = 4000;       // not mounted: retry SD.begin + lo
 static const uint32_t CHECK_MS = 3000;       // mounted: probe for card removal
 
 static SkyObj  *objs = nullptr;              // one heap block, file order
-static int16_t *idx[CAT_COUNT] = {nullptr, nullptr};
-static int      nObj = 0, nCat[CAT_COUNT] = {0, 0};
+static int16_t *idx[CAT_COUNT] = {};
+static int      nObj = 0, nCat[CAT_COUNT] = {};
 static bool     mounted = false, ready = false;
 static int8_t   lastErr = -1;                // 0 ok, 1 no card, 2 bad catalog: log on change only
 static uint32_t lastTickMs = 0;
@@ -96,6 +97,7 @@ static bool loadCatalog() {
     SkyCat cat;
     if (fld[0][0] == 'M') cat = CAT_MESSIER;
     else if (fld[0][0] == 'S') cat = CAT_STAR;
+    else if (fld[0][0] == 'P') cat = CAT_PLANET;      // position from ephem.cpp
     else continue;
     SkyObj &o = objs[nObj];
     copyTrunc(o.key,   sizeof(o.key),   fld[0]);
@@ -113,7 +115,8 @@ static bool loadCatalog() {
   }
   f.close();
   ready = nObj > 0;
-  if (ready) LOG("[sky] catalog: %d objects (%d Messier, %d stars)\n", nObj, nCat[CAT_MESSIER], nCat[CAT_STAR]);
+  if (ready) LOG("[sky] catalog: %d objects (%d Messier, %d stars, %d planets)\n", nObj,
+                 nCat[CAT_MESSIER], nCat[CAT_STAR], nCat[CAT_PLANET]);
   return ready;
 }
 
@@ -274,11 +277,32 @@ void skyPrecess(double raH2000, double decD2000, double jd, double &raH, double 
   decD = d2 * R2D;
 }
 
+bool skyObjNow(const SkyObj *o, double jd, double &raH, double &decD) {
+  if (!o) return false;
+  if (o->cat != CAT_PLANET) { skyPrecess(o->raH, o->decD, jd, raH, decD); return true; }
+  int b = atoi(o->key + 1) - 1;
+  if (b < 0 || b >= B_COUNT) return false;
+  double lat = 0, lon = 0;
+  bool site = skySite(lat, lon);                      // Moon parallax needs the site
+  return ephemRaDec((Body)b, jd, lat, lon, site, raH, decD);
+}
+
+bool skySunSep(const SkyObj *o, double &sepDeg) {
+  double jd, ra, dec, sra, sdec;
+  if (!o || !skyNowJD(jd) || !skyObjNow(o, jd, ra, dec)) return false;
+  ephemSunRaDec(jd, sra, sdec);
+  double c = sin(dec * D2R) * sin(sdec * D2R) +
+             cos(dec * D2R) * cos(sdec * D2R) * cos((ra - sra) * 15.0 * D2R);
+  if (c > 1) c = 1; else if (c < -1) c = -1;
+  sepDeg = acos(c) * R2D;
+  return true;
+}
+
 bool skyAltAz(const SkyObj *o, double &altDeg, double &azDeg) {
   double jd, lat, lon;
   if (!o || !skyNowJD(jd) || !skySite(lat, lon)) return false;
   double ra, dec;
-  skyPrecess(o->raH, o->decD, jd, ra, dec);
+  if (!skyObjNow(o, jd, ra, dec)) return false;
   double D = jd - 2451545.0, T = D / 36525.0;
   double gmst = 280.46061837 + 360.98564736629 * D + 0.000387933 * T * T - T * T * T / 38710000.0;
   double ha = fmod(gmst + lon - ra * 15.0, 360.0);

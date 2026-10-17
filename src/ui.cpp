@@ -1,6 +1,6 @@
 // ui.cpp - screen state machine: status page -> catalog menu -> object list ->
-// object detail with a TRACK (GoTo) button. Two buttons: A = next, B = select,
-// hold B = back. Full clears only on screen changes; otherwise only the changed
+// object detail with a TRACK (GoTo) button. Two buttons: A = next, A twice =
+// select, B = back. Full clears only on screen changes; otherwise only the changed
 // rows / fields are repainted (text drawn with a background colour, no flicker).
 //
 // MENU                                   LIST (9 rows x 22 px)
@@ -12,8 +12,8 @@
 // | Sync GPS now                   |     | M32  Le Gentil            -8d  | <- dimmed
 // | Stop mount                     |     |  ...                           |
 // | Back                           |     |--------------------------------|
-// |--------------------------------|     | A:next  hold A:fast  B:open .. |
-// | A:next  B:select  hold B:back  |     +--------------------------------+
+// |--------------------------------|     | A:next  2xA:open  B:menu      |
+// | A:next  2xA:select  B:back     |     +--------------------------------+
 // +--------------------------------+
 //
 // OBJECT
@@ -31,10 +31,11 @@
 //  RA 00h42m     | |    TRACK     |  RA 00h42m51s      | <- live mount pos /
 //  Dec +41d16'   | +--------------+  Dec +41d16'       |    "below 10d" note
 //  A:next object +-------------------------------------+
-//  hold B:back
+//  B:back
 //
 // TRACK button: TRACK (disabled/grey below MIN_TRACK_ALT_DEG) -B-> CONFIRM? -B->
-// GoTo -> SLEWING -> TRACKING. Any button while SLEWING = stop (:q#).
+// GoTo -> SLEWING -> TRACKING. Any button while SLEWING = stop (:q#), acted on
+// the moment it goes down (not after the double-press window).
 #include "ui.h"
 #include "config.h"
 #include "display.h"
@@ -49,11 +50,14 @@
 #include <stdio.h>
 
 #define MIN_TRACK_ALT_DEG 10.0         // TRACK enabled only at/above this altitude
+#define MIN_SUN_SEP_DEG   15.0         // ... and never this close to the Sun (safety)
 #define DEG "\xF8"                     // CP437 degree sign (tft.cp437(true))
 
 static const int SCR_W = 320, SCR_H = 240;
 static const uint32_t CONFIRM_MS = 5000, RESULT_MS = 3000, FLASH_MS = 1500;
 static const uint32_t SLEW_MAX_MS = 240000UL, ALT_OBJ_MS = 5000, ALT_LIST_MS = 20000;
+static const uint32_t STOP_IGNORE_MS = 800;     // drop the events of the press that stopped a slew
+static uint32_t ignoreUntil = 0;
 
 enum Screen { SC_STATUS, SC_MENU, SC_LIST, SC_OBJECT };
 static Screen scr = SC_STATUS;
@@ -145,17 +149,14 @@ static void statusEnter() { scr = SC_STATUS; displayStatusEnter(); }
 static void menuEnter();
 
 static void statusEvent(BtnEvent e) {
-  if (e == EV_A || e == EV_B) {
-    if (skyReady())  menuEnter();
-    else if (e == EV_B) manualSync();
+  if (e == EV_A || e == EV_A_DOUBLE) {
+    if (skyReady()) menuEnter();
     else setMsg("no SD catalog", C_WARN, 2500);
-  } else if (e == EV_B_HOLD) {
-    manualSync();
   }
 }
 
 // ---- MENU ---------------------------------------------------------------------
-static const int MENU_N = 5, MENU_Y = 36, MENU_H = 32;
+static const int MENU_N = 6, MENU_Y = 36, MENU_H = 32;
 static int menuSel = 0;
 
 static void menuRow(int i) {
@@ -166,8 +167,9 @@ static void menuRow(int i) {
   switch (i) {
     case 0:  snprintf(b, sizeof b, "Messier objects (%d)", skyCount(CAT_MESSIER)); break;
     case 1:  snprintf(b, sizeof b, "Bright stars (%d)", skyCount(CAT_STAR)); break;
-    case 2:  snprintf(b, sizeof b, "Sync GPS now"); break;
-    case 3:  snprintf(b, sizeof b, "Stop mount"); break;
+    case 2:  snprintf(b, sizeof b, "Planets & Moon (%d)", skyCount(CAT_PLANET)); break;
+    case 3:  snprintf(b, sizeof b, "Sync GPS now"); break;
+    case 4:  snprintf(b, sizeof b, "Stop mount"); break;
     default: snprintf(b, sizeof b, "Back"); break;
   }
   tft.fillRect(0, y, SCR_W, MENU_H - 2, bg);
@@ -179,7 +181,7 @@ static void menuEnter() {
   scr = SC_MENU;
   titleBar("Sky catalog");
   for (int i = 0; i < MENU_N; i++) menuRow(i);
-  footHint("A:next   B:select   hold B:back");
+  footHint("A:next   A twice:select   B:back");
 }
 
 static void listEnter(SkyCat c);
@@ -192,12 +194,13 @@ static void menuEvent(BtnEvent e) {
       menuRow(o); menuRow(menuSel);
       break;
     }
-    case EV_B:
+    case EV_A_DOUBLE:
       switch (menuSel) {
         case 0: if (skyCount(CAT_MESSIER) > 0) listEnter(CAT_MESSIER); break;
         case 1: if (skyCount(CAT_STAR) > 0)    listEnter(CAT_STAR);    break;
-        case 2: manualSync(); statusEnter(); break;
-        case 3:
+        case 2: if (skyCount(CAT_PLANET) > 0)  listEnter(CAT_PLANET);  break;
+        case 3: manualSync(); statusEnter(); break;
+        case 4:
           if (btConnected) setMsg("BT busy - not stopped", C_WARN, 3000);
           else {
             bool ok = mountStop();
@@ -209,7 +212,7 @@ static void menuEvent(BtnEvent e) {
         default: statusEnter(); break;
       }
       break;
-    case EV_B_HOLD: statusEnter(); break;
+    case EV_B: statusEnter(); break;
     default: break;
   }
 }
@@ -218,7 +221,7 @@ static void menuEvent(BtnEvent e) {
 static const int LIST_Y = 28, ROW_H = 22, ROWS = 9;
 static const int ALT_W = 4 * 12;                  // "-45deg" column, size 2
 static SkyCat listCat = CAT_MESSIER;
-static int    listSel[CAT_COUNT] = { 0, 0 };
+static int    listSel[CAT_COUNT] = {};
 static int    listTop = 0;
 static char   rowAlt[ROWS][8];                    // altitude text shown per visible row
 static uint32_t listAltMs = 0;
@@ -263,10 +266,10 @@ static void listEnter(SkyCat c) {
   int n = skyCount(c);
   if (listSel[c] >= n || listSel[c] < 0) listSel[c] = 0;
   listTop = listSel[c] / ROWS * ROWS;
-  titleBar(c == CAT_MESSIER ? "Messier" : "Stars");
+  titleBar(c == CAT_MESSIER ? "Messier" : c == CAT_STAR ? "Stars" : "Planets");
   for (int r = 0; r < ROWS; r++) listRow(r);
   listTitle();
-  footHint("A:next  hold A:fast  B:open  hold B:menu");
+  footHint("A:next  hold A:fast  A twice:open  B:menu");
   listAltMs = millis();
 }
 
@@ -305,8 +308,8 @@ static void objEnter(int i);
 static void listEvent(BtnEvent e) {
   switch (e) {
     case EV_A: case EV_A_HOLD: case EV_A_REPEAT: listMove(listSel[listCat] + 1); break;
-    case EV_B:      objEnter(listSel[listCat]); break;
-    case EV_B_HOLD: menuEnter(); break;
+    case EV_A_DOUBLE: objEnter(listSel[listCat]); break;
+    case EV_B:        menuEnter(); break;
     default: break;
   }
 }
@@ -324,19 +327,24 @@ static BtnState bs = BS_READY;
 static uint32_t bsMs = 0, flashUntil = 0, altMs = 0, drawMs = 0;
 static const char *msgLbl = "";                 // BS_MSG: label / colour / fill / duration
 static uint16_t msgCol = C_BAD;
-static bool     msgFill = false, seenSlew = false, altOk = false;
+static bool     msgFill = false, seenSlew = false, altOk = false, sunNear = false;
 static uint32_t msgDur = RESULT_MS;
 static double   oAlt = 0, oAz = 0;
 static char     btnCache[24], sideCache[40], liveCache[32], hintCache[40];
 static char     info[4][200];
 
-static bool trackEnabled() { return altOk && oAlt >= MIN_TRACK_ALT_DEG; }
+static bool trackEnabled() { return altOk && oAlt >= MIN_TRACK_ALT_DEG && !sunNear; }
 static void bsSet(BtnState s) { bs = s; bsMs = millis(); }
 static void bsMsg(const char *l, uint16_t c, bool fill, uint32_t dur) {
   msgLbl = l; msgCol = c; msgFill = fill; msgDur = dur; bsSet(BS_MSG);
 }
 
-static void calcAlt() { altOk = obj && skyAltAz(obj, oAlt, oAz); altMs = millis(); }
+static void calcAlt() {
+  altOk = obj && skyAltAz(obj, oAlt, oAz);
+  double sep;                                     // unknown separation = treat as unsafe
+  sunNear = !(obj && skySunSep(obj, sep)) || sep < MIN_SUN_SEP_DEG;
+  altMs = millis();
+}
 
 static void drawButton() {
   const char *l; uint16_t c; bool fill = false;
@@ -368,14 +376,15 @@ static void drawSide() {                         // 2 lines x 12 chars beside th
     if (M.posValid) { fmtRA(M.raHours, a, sizeof a, true); fmtDec(M.decDegrees, b, sizeof b); }
     else snprintf(a, sizeof a, "RA --");
   } else if (bs == BS_CONFIRM) {
-    c = C_WARN; snprintf(a, sizeof a, "B: GoTo now"); snprintf(b, sizeof b, "A: cancel");
+    c = C_WARN; snprintf(a, sizeof a, "2xA: GoTo"); snprintf(b, sizeof b, "B: cancel");
   } else if (bs == BS_READY && !trackEnabled()) {
     c = (int32_t)(millis() - flashUntil) < 0 ? C_WARN : C_LBL;
-    if (altOk) snprintf(a, sizeof a, "below %d" DEG, (int)MIN_TRACK_ALT_DEG);
+    if (altOk && sunNear) snprintf(a, sizeof a, "near the Sun");
+    else if (altOk) snprintf(a, sizeof a, "below %d" DEG, (int)MIN_TRACK_ALT_DEG);
     else       snprintf(a, sizeof a, "alt unknown");
     snprintf(b, sizeof b, "no GoTo");
   } else if (bs == BS_READY) {
-    snprintf(a, sizeof a, "B: GoTo");
+    snprintf(a, sizeof a, "2xA: GoTo");
   }
   snprintf(key, sizeof key, "%s|%s|%04x", a, b, (unsigned)c);
   if (!strcmp(key, sideCache)) return;
@@ -399,10 +408,10 @@ static void drawLiveAlt() {                       // "Alt 45deg Az 120deg" under
 }
 
 static void drawHint() {
-  const char *a = "A:next object", *b = "hold B:back";
+  const char *a = "A:next object", *b = "B:back";
   uint16_t c = C_LBL;
   if (bs == BS_SLEW)         { a = "any key: STOP"; b = ""; c = C_WARN; }
-  else if (bs == BS_CONFIRM) { a = "B:GO  A:cancel"; }
+  else if (bs == BS_CONFIRM) { a = "A twice:GO"; b = "B:cancel"; }
   char key[40];
   snprintf(key, sizeof key, "%s|%s|%04x", a, b, (unsigned)c);
   if (!strcmp(key, hintCache)) return;
@@ -472,8 +481,11 @@ static void objEnter(int i) {
   txt(4, 154, b, C_LBL, 1);
 
   // below the box: J2000 catalogue position (live alt/az drawn by drawLiveAlt)
-  fmtRA(obj->raH, b, sizeof b, false);  txt(2, 183, b, C_VAL, 1);
-  fmtDec(obj->decD, b, sizeof b);       txt(2, 195, b, C_VAL, 1);
+  double pra = obj->raH, pdec = obj->decD, pjd;  // planets: where it is now
+  if (obj->cat == CAT_PLANET && !(skyNowJD(pjd) && skyObjNow(obj, pjd, pra, pdec))) pra = pdec = NAN;
+  if (isnan(pra)) { txt(2, 183, "RA --", C_LBL, 1); txt(2, 195, "Dec --", C_LBL, 1); }
+  else { fmtRA(pra, b, sizeof b, false); txt(2, 183, b, C_VAL, 1);
+         fmtDec(pdec, b, sizeof b);      txt(2, 195, b, C_VAL, 1); }
 
   drawInfoPane();
   calcAlt();
@@ -487,7 +499,7 @@ static void doGoto() {
   if (!skyNowJD(jd)) { bsMsg("NO TIME", C_BAD, true, RESULT_MS); return; }
   calcAlt(); drawLiveAlt();
   if (!trackEnabled()) { bsSet(BS_READY); flashUntil = millis() + FLASH_MS; return; }
-  skyPrecess(obj->raH, obj->decD, jd, ra, dec);
+  if (!skyObjNow(obj, jd, ra, dec)) { bsMsg("NO POS", C_BAD, true, RESULT_MS); return; }
   bsMsg("GOTO...", C_WARN, true, 10000);
   drawButton();                                   // feedback before the ~1 s block
   switch (mountGoto(ra, dec)) {
@@ -511,7 +523,7 @@ static void objEvent(BtnEvent e) {
       if (bs == BS_CONFIRM) bsSet(BS_READY);      // cancel
       else objEnter(listSel[listCat] + 1);        // next object (tracking continues)
       break;
-    case EV_B:
+    case EV_A_DOUBLE:
       if (bs == BS_CONFIRM) doGoto();
       else if (bs == BS_TRACK) {}                 // already tracking this object
       else {
@@ -520,7 +532,10 @@ static void objEvent(BtnEvent e) {
         else flashUntil = millis() + FLASH_MS;    // disabled: flash the note only
       }
       break;
-    case EV_B_HOLD: listEnter(listCat); break;
+    case EV_B:
+      if (bs == BS_CONFIRM) bsSet(BS_READY);      // cancel the armed GoTo
+      else listEnter(listCat);
+      break;
     default: break;                               // hold/repeat A: ignored here
   }
 }
@@ -540,6 +555,12 @@ static void slewTick() {
 
 static void objTick(bool force) {
   uint32_t now = millis();
+  if (bs == BS_SLEW && buttonsAnyDown()) {        // instant stop, then swallow that press
+    mountStop();
+    mountSetFastStatus(false);
+    bsMsg("STOPPED", C_BAD, true, RESULT_MS);
+    ignoreUntil = now + STOP_IGNORE_MS;
+  }
   if (bs == BS_CONFIRM && now - bsMs > CONFIRM_MS) bsSet(BS_READY);
   if (bs == BS_MSG && now - bsMs > msgDur) bsSet(BS_READY);
   if (bs == BS_SLEW) slewTick();
@@ -555,6 +576,8 @@ void uiBegin() {
 
 void uiTick() {
   BtnEvent e = buttonsGet();                      // one event per loop pass
+  if (e != EV_NONE && (int32_t)(ignoreUntil - millis()) > 0)
+    e = EV_NONE;                                  // tail of the press that stopped a slew
 
   if (scr != SC_STATUS && !skyReady() && !(scr == SC_OBJECT && bs == BS_SLEW)) {
     setMsg("SD card removed", C_WARN, 4000);

@@ -170,3 +170,11 @@ S057 | Double star in the Big Dipper's handle (~14 arcsec), with Alcor nearby to
 S058 | Orange giant at the base of Cassiopeia's W. ~230 ly.
 S059 | Yellow-white pulsating star at the end of Cassiopeia's W. 54 ly.
 S060 | Famous gold and blue double star (~35 arcsec) marking the beak of Cygnus. ~430 ly.
+P001 | Smallest planet and closest to the Sun; never strays far from it, so look low in twilight. Shows phases like a tiny Moon.
+P002 | Brightest planet, wrapped in sulphuric-acid clouds; shows Moon-like phases in any telescope. Image in twilight to cut glare.
+P003 | The red planet: polar caps, dark markings and dust storms; best near opposition every ~26 months when its disc is largest.
+P004 | Largest planet: cloud belts, the Great Red Spot and four Galilean moons visible in small scopes. Rotates in under 10 hours.
+P005 | Gas giant with the famous rings of ice; Titan and several other moons are easy targets. Ring tilt changes over a 15-year cycle.
+P006 | Pale blue-green ice giant tipped on its side; a tiny 3.7 arcsec disc - needs high magnification and steady air.
+P007 | Most distant planet: a faint blue 2.3 arcsec disc; its moon Triton is reachable with 200mm+ and a camera.
+P008 | Our natural satellite, 384,000 km away. Best detail along the terminator - avoid full Moon for crater relief.

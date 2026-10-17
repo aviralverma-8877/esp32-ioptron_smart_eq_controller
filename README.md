@@ -74,6 +74,7 @@ local time, longitude and latitude (`:SC`, `:SL`, `:Sg`, `:St`).
 Insert the SD card into the LCD module's slot and the device gains an object
 browser: pick a Messier object or a bright star, read what it is and how to
 image it, press **TRACK**, and the mount slews there and keeps tracking.
+Planets and the Moon are included — their positions are computed on the device.
 
 **Prepare the card** (any card ≥ 64 MB, e.g. 8 GB) — one of:
 
@@ -86,22 +87,27 @@ image it, press **TRACK**, and the mount slews there and keeps tracking.
   (keeps the full card capacity).
 
 The card is detected at boot and when inserted later (the status page shows an
-**SD** badge). It contains 110 Messier objects + 60 bright stars:
+**SD** badge). It contains 110 Messier objects, 60 bright stars, and the
+planets Mercury–Neptune plus the Moon (the Sun is deliberately absent):
 
 ```
 /SMARTEQ/CATALOG.CSV     key,label,name,type,con,mag,size',RA(h),Dec(°)  J2000
+                         (P-keys: planets/Moon, RA/Dec empty - computed live)
 /SMARTEQ/IMG/<key>.565   96×96 DSS2 thumbnail, raw RGB565
 /SMARTEQ/INFO/<key>.TXT  what it is / Scope / Camera / Exposure
 ```
 
-**Buttons** — A (GPIO36) = next, hold A = fast scroll; B (GPIO39) = select,
-hold B = back. Status page: A/B open the catalog, hold B = GPS re-sync.
+**Buttons** — single press navigates, double press selects: **A** (GPIO36) =
+next (hold = fast scroll), **A twice** = select / open / TRACK, **B** (GPIO39) =
+back. Status page: A opens the catalog; *Sync GPS now* is in the menu.
 
 **Object page** — left: thumbnail + name; right: object info with a suggested
 scope (focal length to frame it on an APS-C sensor), camera/filter and exposure,
 and the **TRACK** button. TRACK is enabled only when the object is ≥ 10° above
-the horizon (needs time + site from GPS or the mount). B arms it (*CONFIRM?*),
-B again starts the GoTo: J2000 → JNow precession on the device, then
+the horizon **and at least 15° from the Sun** (needs time + site from GPS or
+the mount). A twice arms it
+(*CONFIRM?*), A twice again starts the GoTo (B cancels): J2000 → JNow precession on the device (planets / Moon: on-device ephemeris,
+Moon with topocentric parallax), then
 `:ST1#` `:Sr` `:Sd` `:MS#` (the same sequence iOptron Commander uses). Any
 button while slewing = **STOP** (`:q#`). GoTo is disabled while a Bluetooth
 client is connected (the bridge stays transparent).
@@ -120,7 +126,8 @@ object texts and [`tools/sdcard/stars.txt`](tools/sdcard/stars.txt) for the star
 list; scope/camera/exposure advice is derived from size, type and magnitude in
 [`build_sd.py`](tools/sdcard/build_sd.py).
 
-Credits: catalog from [OpenNGC](https://github.com/mattiaverga/OpenNGC)
+Credits: planet images NASA/JPL/ESA (public domain), Moon by Gregory H. Revera
+(CC-BY-SA-3.0), via Wikimedia Commons; catalog from [OpenNGC](https://github.com/mattiaverga/OpenNGC)
 (CC-BY-SA-4.0) and SIMBAD (CDS, Strasbourg); images from the Digitized Sky Survey
 (DSS2, STScI) via CDS hips2fits — non-commercial use with acknowledgement.
 
@@ -182,10 +189,11 @@ GoTo (verified against iOptron Commander on this mount): `:ST1#` tracking on,
 | `src/mount.*` | RS-232 link: `askMount`, iOptron reply decoders, idle poll loop, link tracking |
 | `src/bt_bridge.*` | `BluetoothSerial` SPP endpoint + transparent byte pumping |
 | `src/gps.*` | NEO-6M UART + TinyGPS++ + lock / status |
-| `src/gps_sync.*` | automatic + manual (menu / hold B) GPS→mount time/site sync |
+| `src/gps_sync.*` | automatic + manual (menu) GPS→mount time/site sync |
 | `src/display.*` | ST7789 + status page (changed-field redraw) |
 | `src/buttons.*` | 10 ms sampled buttons → next / hold / repeat / select / back events |
 | `src/sky.*` | SD hot-plug, catalog, thumbnails, info text, precession + alt/az |
+| `src/ephem.*` | planets + Moon positions (JPL elements / Meeus), Sun for the 15° safety guard |
 | `src/ui.*` | screens: status → menu → object list → object page / TRACK |
 | `tools/sdcard/` | builds the SD content + `docs/sdcard/*.zip` |
 | `src/main.cpp` | `setup()` / `loop()` wiring only |

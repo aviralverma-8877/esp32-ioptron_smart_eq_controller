@@ -169,3 +169,11 @@ S057,Mizar,zet UMa,Star,UMa,2.23,,13.398863,54.92516
 S058,Schedar,alf Cas,Star,Cas,2.24,,0.675167,56.53710
 S059,Caph,bet Cas,Star,Cas,2.28,,0.153469,59.14846
 S060,Albireo,bet Cyg,Star,Cyg,3.05,,19.512024,27.95959
+P001,Mercury,Innermost planet,Planet,,0.0,,,
+P002,Venus,Evening/morning star,Planet,,-4.2,,,
+P003,Mars,The red planet,Planet,,0.5,,,
+P004,Jupiter,Gas giant,Planet,,-2.3,,,
+P005,Saturn,Ringed planet,Planet,,0.6,,,
+P006,Uranus,Ice giant,Planet,,5.7,,,
+P007,Neptune,Ice giant,Planet,,7.8,,,
+P008,Moon,Earth's Moon,Moon,,-12.7,,,
