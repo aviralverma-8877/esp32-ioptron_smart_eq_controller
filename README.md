@@ -44,8 +44,10 @@ local time, longitude and latitude (`:SC`, `:SL`, `:Sg`, `:St`).
 | TFT SCLK / MOSI / MISO | 18 / 23 / 19 | `SPI_*` | ST7789 (VSPI) |
 | TFT CS / DC / RST | 25 / 26 / 27 | `TFT_*` | ST7789 |
 | LED2 (mount link) | GPIO2 | `IO2` | 470 Ω → LED → GND |
-| BTN1 (optional manual re-sync) | GPIO39 | — | tactile switch to GND, ext. 10 kΩ pull-up |
-| SD_CS / TOUCH_CS | 33 / 13 | — | parked HIGH at boot (unused) |
+| BTN B (select / back) | GPIO39 | — | tactile switch to GND, ext. 10 kΩ pull-up |
+| BTN A (next / scroll) | GPIO36 | — | tactile switch to GND, ext. 10 kΩ pull-up |
+| SD card (on LCD module) | 33 | `SD_CS` | shares VSPI 18/23/19 with the TFT |
+| TOUCH_CS | 13 | — | parked HIGH at boot (unused) |
 | Debug log | GPIO1/3 | `TX`/`RX` | CH340G / USB-C — **log only**, 115200 |
 
 `-DDEBUG_LOG=1` prints one `[state] …` line every 3 s. Build knobs live in
@@ -66,6 +68,61 @@ local time, longitude and latitude (`:SC`, `:SL`, `:Sg`, `:St`).
 4. **Buttons** (BTN1/BTN2, GPIO39/36) may be unpopulated on early boards — GPS
    sync is fully automatic and needs no button. BTN1 is only an optional manual
    re-sync trigger.
+
+## Sky catalog & GoTo (SD card)
+
+Insert the SD card into the LCD module's slot and the device gains an object
+browser: pick a Messier object or a bright star, read what it is and how to
+image it, press **TRACK**, and the mount slews there and keeps tracking.
+
+**Prepare the card** (any card ≥ 64 MB, e.g. 8 GB) — one of:
+
+* Flash [`docs/sdcard/smarteq-sd.img.zip`](docs/sdcard/smarteq-sd.img.zip)
+  with [balenaEtcher](https://etcher.balena.io/) or Rufus (they take the `.zip`
+  directly). This writes a 64 MB FAT32 partition — the rest of the card stays
+  unused.
+* Or format the card FAT32 and unzip
+  [`docs/sdcard/smarteq-sd-files.zip`](docs/sdcard/smarteq-sd-files.zip) onto it
+  (keeps the full card capacity).
+
+The card is detected at boot and when inserted later (the status page shows an
+**SD** badge). It contains 110 Messier objects + 60 bright stars:
+
+```
+/SMARTEQ/CATALOG.CSV     key,label,name,type,con,mag,size',RA(h),Dec(°)  J2000
+/SMARTEQ/IMG/<key>.565   96×96 DSS2 thumbnail, raw RGB565
+/SMARTEQ/INFO/<key>.TXT  what it is / Scope / Camera / Exposure
+```
+
+**Buttons** — A (GPIO36) = next, hold A = fast scroll; B (GPIO39) = select,
+hold B = back. Status page: A/B open the catalog, hold B = GPS re-sync.
+
+**Object page** — left: thumbnail + name; right: object info with a suggested
+scope (focal length to frame it on an APS-C sensor), camera/filter and exposure,
+and the **TRACK** button. TRACK is enabled only when the object is ≥ 10° above
+the horizon (needs time + site from GPS or the mount). B arms it (*CONFIRM?*),
+B again starts the GoTo: J2000 → JNow precession on the device, then
+`:ST1#` `:Sr` `:Sd` `:MS#` (the same sequence iOptron Commander uses). Any
+button while slewing = **STOP** (`:q#`). GoTo is disabled while a Bluetooth
+client is connected (the bridge stays transparent).
+
+**Rebuild the card content** (Python 3.10+):
+
+```bash
+python -m venv tools/sdcard/.venv
+tools/sdcard/.venv/Scripts/pip install -r tools/sdcard/requirements.txt   # bin/ on Linux/macOS
+tools/sdcard/.venv/Scripts/python tools/sdcard/build_sd.py                # images are cached in build/
+tools/sdcard/.venv/Scripts/python tools/sdcard/build_sd.py --refresh-catalog
+```
+
+Edit [`tools/sdcard/descriptions.txt`](tools/sdcard/descriptions.txt) for the
+object texts and [`tools/sdcard/stars.txt`](tools/sdcard/stars.txt) for the star
+list; scope/camera/exposure advice is derived from size, type and magnitude in
+[`build_sd.py`](tools/sdcard/build_sd.py).
+
+Credits: catalog from [OpenNGC](https://github.com/mattiaverga/OpenNGC)
+(CC-BY-SA-4.0) and SIMBAD (CDS, Strasbourg); images from the Digitized Sky Survey
+(DSS2, STScI) via CDS hips2fits — non-commercial use with acknowledgement.
 
 ## Flash from the browser
 
@@ -106,11 +163,15 @@ pio device monitor            # watch [state] lines @ 115200
 | `:GLT#` | `sMMM d YYMMDD HHMMSS#` | UTC offset min, DST, local date, local time |
 | `:GLS#` | `s lon(6″) lat(6″) <GAS 6>#` | site longitude / latitude, arc-seconds |
 | `:GAS#` | `G S T M X H#` | GPS, status, track-rate, slew-rate, time-src, hemisphere |
-| `:GEC#` | `sDDDDDDDD RRRRRRRR#` | Dec, RA in 0.01″ |
+| `:GEC#` | `sDDDDDDDD RRRRRRRR#` | Dec in 0.01″, RA in **ms** |
 | `:AG#` | `gggg#` | RA / Dec guide rate ×0.01 |
 
 Setters used by the GPS sync: `:SG±MMM#` (kept), `:SDS0/1#` (kept), `:SCYYMMDD#`,
 `:SLHHMMSS#`, `:Sg±TTTTTTTT#`, `:St±TTTTTTTT#` (0.01″) — each returns `1` on OK.
+
+GoTo (verified against iOptron Commander on this mount): `:ST1#` tracking on,
+`:SrRRRRRRRR#` RA in ms, `:Sd±DDDDDDDD#` Dec in 0.01″, `:MS#` slew (`1` OK /
+`0` below horizon or limits), `:q#` stop — all reply `1`.
 
 ## Source layout
 
@@ -121,8 +182,12 @@ Setters used by the GPS sync: `:SG±MMM#` (kept), `:SDS0/1#` (kept), `:SCYYMMDD#
 | `src/mount.*` | RS-232 link: `askMount`, iOptron reply decoders, idle poll loop, link tracking |
 | `src/bt_bridge.*` | `BluetoothSerial` SPP endpoint + transparent byte pumping |
 | `src/gps.*` | NEO-6M UART + TinyGPS++ + lock / status |
-| `src/gps_sync.*` | automatic + manual (BTN1) GPS→mount time/site sync |
-| `src/display.*` | ST7789 + all rendering (changed-field redraw) |
+| `src/gps_sync.*` | automatic + manual (menu / hold B) GPS→mount time/site sync |
+| `src/display.*` | ST7789 + status page (changed-field redraw) |
+| `src/buttons.*` | 10 ms sampled buttons → next / hold / repeat / select / back events |
+| `src/sky.*` | SD hot-plug, catalog, thumbnails, info text, precession + alt/az |
+| `src/ui.*` | screens: status → menu → object list → object page / TRACK |
+| `tools/sdcard/` | builds the SD content + `docs/sdcard/*.zip` |
 | `src/main.cpp` | `setup()` / `loop()` wiring only |
 | `scripts/merge_bin.py` | post-build: merged image + manifest for the web flasher |
 | `docs/` | GitHub Pages web flasher (`index.html`, `manifest.json`, `firmware/`) |
@@ -131,6 +196,6 @@ Setters used by the GPS sync: `:SG±MMM#` (kept), `:SDS0/1#` (kept), `:SCYYMMDD#
 
 - Stateless bridge, no flow control (RTS/CTS/DTR not wired on this board).
 - `pump()` is bounded by `available()`, so `loop()` never blocks on the bridge.
-- BTN1 press is caught by a pin interrupt so a poll-blocked `loop()` can't miss it.
+- Buttons are sampled by a 10 ms `esp_timer` into a queue, so a poll-blocked `loop()` can't miss a press (no GPIO36/39 interrupts - ESP32 erratum).
 - TFT redraws only changed fields — no flicker.
 - `huge_app.csv` partition (3 MB app, no OTA) — Bluedroid SPP is large.

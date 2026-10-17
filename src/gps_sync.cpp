@@ -1,9 +1,11 @@
+// gps_sync.cpp - push GPS date/time + site into the mount (auto + manual).
 #include "gps_sync.h"
 #include "config.h"
 #include "gps.h"
 #include "mount.h"
 #include "bt_bridge.h"
 #include "message.h"
+#include "timeutil.h"
 #include <math.h>
 #include <string.h>
 
@@ -16,28 +18,6 @@ uint16_t syncMsgColor = C_LBL;
 static bool     syncArmed   = true;    // re-armed on fix loss / periodic timer
 static uint32_t lockSinceMs = 0;       // millis when the present fix began
 static uint32_t lastSyncMs  = 0;       // millis of last OK sync (0 = never)
-
-// ---- civil <-> days-since-epoch (Howard Hinnant), for UTC->local calendar ----
-static long daysFromCivil(int y, int m, int d) {
-  y -= m <= 2;
-  long era = (y >= 0 ? y : y - 399) / 400;
-  int  yoe = y - (int)(era * 400);
-  int  doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
-  int  doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-  return era * 146097 + doe - 719468;
-}
-static void civilFromDays(long z, int &y, int &m, int &d) {
-  z += 719468;
-  long era = (z >= 0 ? z : z - 146096) / 146097;
-  int  doe = (int)(z - era * 146097);
-  int  yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-  y = yoe + (int)(era * 400);
-  int doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-  int mp  = (5 * doy + 2) / 153;
-  d = doy - (153 * mp + 2) / 5 + 1;
-  m = mp + (mp < 10 ? 3 : -9);
-  y += (m <= 2);
-}
 
 // ---- the actual sync -------------------------------------------------
 static void doGpsSync(bool manual) {
@@ -125,31 +105,20 @@ static void autoSyncTick() {
   doGpsSync(false);
 }
 
-// ---- BTN1 (optional manual re-sync) ---------------------------------
-// An ISR latches the press so it survives loop() being blocked in a serial read.
-static volatile bool     btnLatch = false;
-static volatile uint32_t btnIsrMs = 0;
-static void IRAM_ATTR btnIsr() {
-  uint32_t m = millis();
-  if (m - btnIsrMs > 250) { btnLatch = true; btnIsrMs = m; }
-}
-static void checkButton() {
-  if (!btnLatch) return;
-  btnLatch = false;
-  if (digitalRead(BTN_SYNC_PIN) != LOW) return;    // reject a glitch
-  LOG("[btn] PRESS\n");
-  setMsg("button - re-syncing from GPS...", C_WARN, 2500);
-  syncArmed = false;
-  doGpsSync(true);
-}
+// ---- manual re-sync (UI) -------------------------------------------
+static volatile bool manualReq = false;
 
-void gpsSyncBegin() {
-  pinMode(BTN_SYNC_PIN, INPUT);   // external 10k pull-up on the board
-  attachInterrupt(digitalPinToInterrupt(BTN_SYNC_PIN), btnIsr, FALLING);
-}
+void gpsSyncRequestManual() { manualReq = true; }
+
+void gpsSyncBegin() {}
 
 void gpsSyncTick() {
-  checkButton();
+  if (manualReq) {
+    manualReq = false;
+    LOG("[sync] manual request\n");
+    syncArmed = false;
+    doGpsSync(true);
+  }
   static uint32_t t = 0;
   if (millis() - t > 500) { t = millis(); autoSyncTick(); }
 }

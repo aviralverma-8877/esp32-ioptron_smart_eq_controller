@@ -1,6 +1,10 @@
+// mount.cpp - iOptron RS-232 command I/O, reply decoders, idle self-poll,
+// link tracking and the GoTo / stop / tracking commands.
 #include "mount.h"
 #include "config.h"
 #include "bt_bridge.h"     // btConnected (link timeout depends on it)
+#include "timeutil.h"
+#include <math.h>
 #include <string.h>
 
 static HardwareSerial   Rs232(2);
@@ -93,17 +97,23 @@ static void decGLT(const char *r) {                // sMMMd YYMMDD HHMMSS #
   snprintf(M.dst, sizeof M.dst, "%s", M.dstFlag ? "on" : "off");
   snprintf(M.dateStr, sizeof M.dateStr, "%04d-%02d-%02d", Y, Mo, D);
   snprintf(M.timeStr, sizeof M.timeStr, "%02d:%02d:%02d", h, mi, s);
+  M.localEpoch   = daysFromCivil(Y, Mo, D) * 86400L + h * 3600L + mi * 60L + s;
+  M.localEpochMs = millis();
+  M.timeValid    = true;
 }
+static bool lonOk = false, latOk = false;           // siteValid once both decoded
 static void decGG(const char *r) {                 // longitude, 0.01"  (:Gg#)
   if (strlen(r) < 5 || (r[0] != '+' && r[0] != '-')) return;
   double d = atol(r + 1) / 360000.0 * (r[0] == '-' ? -1 : 1);
   snprintf(M.lonStr, sizeof M.lonStr, "%.4f%c", fabs(d), d < 0 ? 'W' : 'E');
+  M.lonDeg = d; lonOk = true; M.siteValid = lonOk && latOk;
 }
 static void decGT(const char *r) {                 // latitude, 0.01"  (:Gt#)
   if (strlen(r) < 5 || (r[0] != '+' && r[0] != '-')) return;
   double d = atol(r + 1) / 360000.0 * (r[0] == '-' ? -1 : 1);
   snprintf(M.latStr, sizeof M.latStr, "%.4f%c%s", fabs(d), d < 0 ? 'S' : 'N',
            fabs(d) > 90.0 ? "?" : "");
+  M.latDeg = d; latOk = true; M.siteValid = lonOk && latOk;   // raw, sky.cpp sorts the offset
 }
 static void decGAS(const char *r) {                // G S T M X H
   if (strlen(r) < 6 || !allDigits(r, 6)) return;
@@ -117,17 +127,20 @@ static void decGAS(const char *r) {                // G S T M X H
   snprintf(M.trackStr,  sizeof M.trackStr,  "%s", tr >= 0 && tr < 5 ? T[tr] : "?");
   snprintf(M.slewRate,  sizeof M.slewRate,  "%s", sp >= 0 && sp < 10 ? R[sp] : "?");
   snprintf(M.hemi,      sizeof M.hemi,      "%s", hm ? "N" : "S");
+  M.statusCode = st;
   int xs = r[4] - '0';
   snprintf(M.gpsSrc,    sizeof M.gpsSrc,    "%s", xs >= 0 && xs < 3 ? X[xs] : "?");
 }
-static void decGEC(const char *r) {                // sDDDDDDDD RRRRRRRR # (0.01")
-  if (strlen(r) < 17 || (r[0] != '+' && r[0] != '-')) return;
+static void decGEC(const char *r) {                // sDDDDDDDD (0.01") RRRRRRRR (ms) #
+  if (strlen(r) < 17 || (r[0] != '+' && r[0] != '-') || !allDigits(r + 1, 16)) return;
   double dec = sub2l(r, 1, 8) / 360000.0 * (r[0] == '-' ? -1 : 1);
-  double raH = sub2l(r, 9, 8) / 360000.0 / 15.0;
-  int rh = (int)raH, rm = (int)((raH - rh) * 60);
+  long   ms  = sub2l(r, 9, 8);
+  double raH = ms / 3600000.0;
+  int rh = (int)(ms / 3600000L), rm = (int)((ms / 60000L) % 60);
   int dd = (int)fabs(dec); int dm = (int)((fabs(dec) - dd) * 60);
   snprintf(M.raStr,  sizeof M.raStr,  "%02dh%02dm", rh, rm);
   snprintf(M.decStr, sizeof M.decStr, "%c%02d %02d'", dec < 0 ? '-' : '+', dd, dm);
+  M.raHours = raH; M.decDegrees = dec; M.posValid = true;
 }
 static void decAG(const char *r) {                 // gggg -> x0.01
   if (strlen(r) < 4 || !allDigits(r, 4)) return;
@@ -144,11 +157,19 @@ void mountQueryGLT() {
 enum PollStep { P_MODEL, P_PROTO, P_FW1, P_FW2, P_GLT, P_GG, P_GT, P_GAS, P_GEC, P_AG, P_COUNT };
 static uint8_t  pollStep    = P_MODEL;
 static uint8_t  slowCounter = 0;
+static bool     fastStatus  = false;    // GoTo in progress: only :GAS# / :GEC#
 
 void mountRequestTimeRefresh() { pollStep = P_GLT; }
 
+void mountSetFastStatus(bool on) {
+  if (on == fastStatus) return;
+  fastStatus = on;
+  pollStep = on ? P_GAS : P_GLT;        // off: resume the normal cycle
+}
+
 void mountPoll() {
   char r[40];
+  if (fastStatus && pollStep != P_GAS && pollStep != P_GEC) pollStep = P_GAS;
   switch (pollStep) {
     case P_MODEL:
       if (askMount(":MountInfo#", r, sizeof r, 500, 4) == 4) {
@@ -179,12 +200,46 @@ void mountPoll() {
   }
   M.lastOkMs = millis();
   M.everOk = true;
+  if (fastStatus) { pollStep = (pollStep == P_GAS) ? P_GEC : P_GAS; return; }
   do {
     pollStep = (pollStep + 1) % P_COUNT;
     if (pollStep == P_MODEL) slowCounter++;
   } while ((pollStep == P_MODEL || pollStep == P_PROTO ||
             pollStep == P_FW1   || pollStep == P_FW2) && (slowCounter & 0x07));
 }
+
+// ---- GoTo / motion ----------------------------------------------
+static bool ask1(const char *cmd) {                // single-char '1' reply, no '#'
+  char r[4];
+  bool ok = askMount(cmd, r, sizeof r, 700, 1) == 1 && r[0] == '1';
+  LOG("[goto] %s -> %s\n", cmd, ok ? "1" : (r[0] ? r : "(none)"));
+  return ok;
+}
+
+GotoResult mountGoto(double raH, double decD) {
+  if (btConnected)    return GOTO_BT_BUSY;
+  if (!mountLinkUp()) return GOTO_NO_LINK;
+  raH = fmod(raH, 24.0); if (raH < 0) raH += 24.0;
+  decD = constrain(decD, -90.0, 90.0);
+  long raMs  = lround(raH * 3600000.0);  if (raMs >= 86400000L) raMs -= 86400000L;
+  long dec01 = lround(decD * 360000.0);
+  LOG("[goto] RA %.5fh Dec %+.5f\n", raH, decD);
+
+  char c[24], r[4];
+  if (!ask1(":ST1#")) return GOTO_COMM_ERR;
+  snprintf(c, sizeof c, ":Sr%08ld#", raMs);
+  if (!ask1(c)) return GOTO_COMM_ERR;
+  snprintf(c, sizeof c, ":Sd%c%08ld#", dec01 < 0 ? '-' : '+', labs(dec01));
+  if (!ask1(c)) return GOTO_COMM_ERR;
+  size_t n = askMount(":MS#", r, sizeof r, 700, 1);
+  LOG("[goto] :MS# -> %s\n", n ? r : "(none)");
+  if (n && r[0] == '1') return GOTO_OK;
+  if (n && r[0] == '0') return GOTO_REJECTED;
+  return GOTO_COMM_ERR;
+}
+
+bool mountStop()              { return ask1(":q#"); }
+bool mountSetTracking(bool on) { return ask1(on ? ":ST1#" : ":ST0#"); }
 
 void mountBegin() {
   Rs232.setRxBufferSize(UART_RX_BUFFER);

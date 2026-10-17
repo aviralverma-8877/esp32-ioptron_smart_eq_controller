@@ -1,2 +1,4 @@
 .pio/
 .vscode/
+build/
+tools/sdcard/.venv/

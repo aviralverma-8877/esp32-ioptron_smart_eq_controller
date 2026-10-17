@@ -25,10 +25,16 @@
 #define ACT_LED_PIN 2               // LED2 - lit while the mount link is up
 #endif
 #ifndef BTN_SYNC_PIN
-#define BTN_SYNC_PIN 39             // BTN1, active-low, external pull-up
+#define BTN_SYNC_PIN 39             // BTN B (select / back), active-low, ext. pull-up
+#endif
+#ifndef BTN_NEXT_PIN
+#define BTN_NEXT_PIN 36             // BTN A (next / scroll), active-low, ext. pull-up
 #endif
 #ifndef SD_CS_PIN
-#define SD_CS_PIN 33                // parked HIGH at boot (shared SPI, unused)
+#define SD_CS_PIN 33                // SD card on the LCD module (shared VSPI)
+#endif
+#ifndef SD_HZ
+#define SD_HZ 20000000              // SD SPI clock (tested OK at 20 MHz)
 #endif
 #ifndef TOUCH_CS_PIN
 #define TOUCH_CS_PIN 13             // parked HIGH at boot (shared SPI, unused)
@@ -78,3 +84,5 @@
 #define C_WARN  0xFFE0
 #define C_BAD   0xF800
 #define C_SEP   0x2124
+#define C_SEL   0x0013              // list highlight (dark blue)
+#define C_BOX   0x4208              // panel outlines

@@ -3,12 +3,11 @@
 //   BT SPP client <-RFCOMM-> ESP32 UART2 (GPIO17/16) <-> MAX3232 <-RS232-> RJ9 -> mount
 //   TFT  (ST7789, HW SPI/VSPI): SCLK18 MOSI23 MISO19  CS25 DC26 RST27
 //   GPS  (NEO-6M): TX -> GPIO32 (UART1 RX, receive only)
-//   LED2 GPIO2 = mount-link indicator ;  BTN1 GPIO39 = optional manual GPS re-sync
-//
-//   *** rev 1.0 hw note *** RJ1 pin 3/4 (TXD/RXD) are swapped vs a straight
-//   iOptron RJ9 cable - use a cable that swaps pins 3<->4 (pin 1 GND straight).
+//   LED2 GPIO2 = mount-link indicator ;  BTN A GPIO36 / BTN B GPIO39 = UI
+//   SD card on the LCD module (CS GPIO33, shared VSPI) = sky database + GoTo
 //
 // Modules:  config.h  message  mount  bt_bridge  gps  gps_sync  display
+//           buttons  sky  ui
 // ---------------------------------------------------------------------------
 #include <Arduino.h>
 #include "config.h"
@@ -17,6 +16,9 @@
 #include "gps.h"
 #include "gps_sync.h"
 #include "display.h"
+#include "buttons.h"
+#include "sky.h"
+#include "ui.h"
 
 void setup() {
   pinMode(ACT_LED_PIN, OUTPUT);   digitalWrite(ACT_LED_PIN, LOW);
@@ -31,10 +33,14 @@ void setup() {
   gpsBegin();
   gpsSyncBegin();
   displayBegin();
+  skyBegin();
+  buttonsBegin();
+  uiBegin();
   btBegin();
 
-  LOG("\n[bridge] %s  BT-SPP <-> RS232 @ %d 8N1 (RX=%d TX=%d)  GPS RX=%d  BTN=%d\n",
-      BT_NAME, (int)BRIDGE_BAUD, RS232_RX_PIN, RS232_TX_PIN, GPS_RX_PIN, BTN_SYNC_PIN);
+  LOG("\n[bridge] %s  BT-SPP <-> RS232 @ %d 8N1 (RX=%d TX=%d)  GPS RX=%d  BTN A=%d B=%d\n",
+      BT_NAME, (int)BRIDGE_BAUD, RS232_RX_PIN, RS232_TX_PIN, GPS_RX_PIN,
+      BTN_NEXT_PIN, BTN_SYNC_PIN);
 
   for (int i = 0; i < 3; i++) {
     digitalWrite(ACT_LED_PIN, HIGH); delay(60);
@@ -49,10 +55,10 @@ static void debugState() {
   t = millis();
   char gs[32]; gpsStatusStr(gs, sizeof gs);
   LOG("[state] %s(%s) link=%s | %s %s | lon %s lat %s | %s %s | RA %s Dec %s | "
-      "GPS %s | BTN=%d | %s\n",
+      "GPS %s | SD %s | %s\n",
       M.modelName, M.model, linkUp ? "UP" : "down", M.dateStr, M.timeStr,
       M.lonStr, M.latStr, M.statusStr, M.slewRate, M.raStr, M.decStr,
-      gs, digitalRead(BTN_SYNC_PIN), btConnected ? "BT-client" : "polling");
+      gs, skyReady() ? "ok" : "-", btConnected ? "BT-client" : "polling");
 }
 #endif
 
@@ -71,7 +77,8 @@ void loop() {
   mountUpdateLink();
   digitalWrite(ACT_LED_PIN, linkUp ? HIGH : LOW);   // LED2 = mount link
 
-  displayTick();
+  skyTick();
+  uiTick();                               // status page or catalog UI
 
 #if defined(DEBUG_LOG) && DEBUG_LOG
   debugState();

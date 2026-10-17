@@ -27,6 +27,17 @@ struct MountState {
   char gpsSrc[8]     = "";      // mount's own time-source flag
   long offsetMin     = 0;       // configured UTC offset, minutes
   int  dstFlag       = 0;
+  // raw values for GoTo / sky maths (valid flags false until first decode)
+  long     localEpoch  = 0;     // :GLT# local time, seconds since 1970-01-01 (as local)
+  uint32_t localEpochMs = 0;    // millis() when localEpoch was read
+  bool     timeValid   = false;
+  double   lonDeg      = 0;     // :Gg#, east-positive
+  double   latDeg      = 0;     // :Gt# as reported (may carry a +90 offset, see sky.cpp)
+  bool     siteValid   = false;
+  int      statusCode  = -1;    // :GAS# digit 1: 0 stopped 1 tracking 2 slewing ... 6 parked
+  double   raHours     = 0;     // :GEC# current pointing (JNow), RA in hours
+  double   decDegrees  = 0;
+  bool     posValid    = false;
   uint32_t lastOkMs  = 0;
   bool     everOk    = false;
 };
@@ -46,6 +57,17 @@ void   mountQueryGLT();                    // askMount(":GLT#") + decode
 // transparent bridge helpers (client stream <-> mount UART)
 void   pumpClientToMount(Stream &client);
 void   pumpMountToClient(Print  &client);
+
+// ---- GoTo (idle / no BT client only; all block <= ~2 s) ----------------------
+enum GotoResult : uint8_t { GOTO_OK, GOTO_NO_LINK, GOTO_BT_BUSY, GOTO_REJECTED, GOTO_COMM_ERR };
+// RA/Dec must already be JNow. Sends :ST1# :Sr :Sd :MS# (same sequence as
+// iOptron Commander on the SmartEQ Pro). GOTO_REJECTED = :MS# answered '0'
+// (below horizon / beyond limits).
+GotoResult mountGoto(double raHoursJNow, double decDegJNow);
+bool       mountStop();                    // :q#  - stop any slew/move
+bool       mountSetTracking(bool on);      // :ST1# / :ST0#
+// While true, the idle poll only cycles :GAS# and :GEC# (fast slew feedback).
+void       mountSetFastStatus(bool on);
 
 // low-level command/response; `fixedLen` reads exactly N bytes (for :MountInfo#).
 size_t askMount(const char *cmd, char *out, size_t outSz,

@@ -1,0 +1,172 @@
+# One-line "what is it" text per catalog key, shown on the device's object page.
+# key | text   (ASCII only; ~200 chars max; distances are approximate)
+M001 | Remnant of the supernova seen by Chinese astronomers in 1054. A pulsar spinning 30 times a second powers the glowing filaments. ~6,500 ly.
+M002 | Rich globular cluster in Aquarius holding about 150,000 stars, one of the largest known. ~37,500 ly.
+M003 | Bright globular cluster in Canes Venatici, famous for its large number of variable stars. ~34,000 ly.
+M004 | One of the nearest globular clusters, just west of Antares; loose enough to show a central bar of stars. ~7,200 ly.
+M005 | Large, bright globular cluster in Serpens, about 13 billion years old. ~24,500 ly.
+M006 | Butterfly Cluster - open cluster in Scorpius whose stars outline a butterfly; brightest star is an orange giant. ~1,600 ly.
+M007 | Ptolemy Cluster - big, bright open cluster in Scorpius, visible to the naked eye and known since antiquity. ~980 ly.
+M008 | Lagoon Nebula - large glowing star-forming cloud crossed by a dark lane, with young cluster NGC 6530. ~4,100 ly.
+M009 | Globular cluster in Ophiuchus close to the galactic centre, dimmed by foreground dust. ~25,800 ly.
+M010 | Bright globular cluster in Ophiuchus, a near twin of M12 in the same field area. ~14,300 ly.
+M011 | Wild Duck Cluster - one of the richest and most compact open clusters, in Scutum. ~6,200 ly.
+M012 | Loose globular cluster in Ophiuchus, close on the sky to M10. ~16,000 ly.
+M013 | Great Hercules Cluster - the finest northern globular, around 300,000 stars. ~22,200 ly.
+M014 | Globular cluster in Ophiuchus, evenly bright with no obvious core. ~30,000 ly.
+M015 | Dense, core-collapsed globular in Pegasus; contains the planetary nebula Pease 1. ~33,600 ly.
+M016 | Eagle Nebula - star-forming region with young cluster, home of the Pillars of Creation. ~7,000 ly.
+M017 | Omega (Swan) Nebula - one of the brightest star-forming regions in the sky, in Sagittarius. ~5,500 ly.
+M018 | Small, sparse open cluster in Sagittarius between M17 and M24. ~4,900 ly.
+M019 | Noticeably oval globular cluster in Ophiuchus near the galactic centre. ~28,700 ly.
+M020 | Trifid Nebula - red emission and blue reflection nebula split into three lobes by dark dust lanes. ~5,000 ly.
+M021 | Compact young open cluster in Sagittarius, next to the Trifid Nebula. ~4,200 ly.
+M022 | One of the brightest and nearest globular clusters, in Sagittarius. ~10,600 ly.
+M023 | Rich open cluster in Sagittarius with about 150 members. ~2,100 ly.
+M024 | Sagittarius Star Cloud - a window through dust onto a dense part of a Milky Way spiral arm. ~10,000 ly.
+M025 | Bright open cluster in Sagittarius (IC 4725) containing a Cepheid variable. ~2,000 ly.
+M026 | Small open cluster in Scutum with a curious gap of stars near its centre. ~5,000 ly.
+M027 | Dumbbell Nebula - the brightest planetary nebula, a dying star's shed shell glowing green and red. ~1,360 ly.
+M028 | Compact globular cluster in Sagittarius near Kaus Borealis. ~17,900 ly.
+M029 | Small open cluster in Cygnus, dimmed by Milky Way dust; a 'cooling tower' shape. ~4,000 ly.
+M030 | Core-collapsed globular in Capricornus with a very dense centre. ~27,100 ly.
+M031 | Andromeda Galaxy - nearest large spiral galaxy, about a trillion stars; on a collision course with the Milky Way. ~2.5 million ly.
+M032 | Compact elliptical satellite galaxy of Andromeda, just south of its core. ~2.5 million ly.
+M033 | Triangulum Galaxy - face-on spiral with the giant star-forming region NGC 604. ~2.7 million ly.
+M034 | Open cluster in Perseus of about 100 stars, many in pairs. ~1,500 ly.
+M035 | Large open cluster in Gemini; the more distant cluster NGC 2158 sits beside it. ~2,800 ly.
+M036 | Young open cluster in Auriga, brightest of the three Auriga Messier clusters. ~4,100 ly.
+M037 | The richest open cluster in Auriga, hundreds of stars with an orange giant at the centre. ~4,500 ly.
+M038 | Starfish Cluster - open cluster in Auriga with small cluster NGC 1907 next door. ~4,200 ly.
+M039 | Large, loose open cluster in Cygnus, best at low power. ~1,000 ly.
+M040 | Winnecke 4 - an optical double star in Ursa Major that Messier logged while searching for a nebula.
+M041 | Bright open cluster just south of Sirius, with an orange giant near its centre. ~2,300 ly.
+M042 | Orion Nebula - nearest massive star-forming region, lit by the young Trapezium stars. Very bright core: use HDR. ~1,340 ly.
+M043 | De Mairan's Nebula - a comma-shaped part of the Orion Nebula complex, separated by a dust lane. ~1,600 ly.
+M044 | Beehive Cluster (Praesepe) - big naked-eye open cluster in Cancer. ~580 ly.
+M045 | Pleiades - young blue stars wrapped in blue reflection nebulosity; the Seven Sisters. ~440 ly.
+M046 | Rich open cluster in Puppis with the planetary nebula NGC 2438 in front of it. ~5,400 ly.
+M047 | Bright, loose open cluster in Puppis, next to M46. ~1,600 ly.
+M048 | Large open cluster in Hydra, about 80 stars. ~1,500 ly.
+M049 | Giant elliptical galaxy, the brightest member of the Virgo Cluster. ~56 million ly.
+M050 | Heart-shaped open cluster in Monoceros. ~3,200 ly.
+M051 | Whirlpool Galaxy - classic face-on spiral interacting with its companion NGC 5195. ~23 million ly.
+M052 | Rich open cluster in Cassiopeia; the Bubble Nebula lies just to the south. ~5,000 ly.
+M053 | Globular cluster in Coma Berenices, one of the more distant Messier globulars. ~58,000 ly.
+M054 | Globular cluster that belongs to the Sagittarius Dwarf galaxy, not the Milky Way. ~87,000 ly.
+M055 | Large, loose globular cluster in Sagittarius. ~17,600 ly.
+M056 | Globular cluster in Lyra set in a rich Milky Way star field. ~32,900 ly.
+M057 | Ring Nebula - planetary nebula in Lyra, a glowing shell around a white dwarf. ~2,300 ly.
+M058 | Barred spiral galaxy in the Virgo Cluster. ~62 million ly.
+M059 | Elliptical galaxy in the Virgo Cluster. ~60 million ly.
+M060 | Giant elliptical in Virgo, paired on the sky with spiral NGC 4647. ~55 million ly.
+M061 | Face-on barred spiral in Virgo where several supernovae have been seen. ~52 million ly.
+M062 | Irregular-looking globular cluster in Ophiuchus, distorted by the galactic centre. ~22,200 ly.
+M063 | Sunflower Galaxy - spiral with patchy, flocculent arms. ~29 million ly.
+M064 | Black Eye Galaxy - spiral with a striking dark dust band in front of its core. ~17 million ly.
+M065 | Spiral galaxy, one of the Leo Triplet with M66 and NGC 3628. ~35 million ly.
+M066 | Spiral galaxy with distorted arms, member of the Leo Triplet. ~36 million ly.
+M067 | One of the oldest known open clusters (~4 billion years), in Cancer. ~2,700 ly.
+M068 | Globular cluster in Hydra. ~33,600 ly.
+M069 | Small globular cluster in Sagittarius, one of the most metal-rich. ~29,700 ly.
+M070 | Compact globular in Sagittarius near the teapot's base. ~29,300 ly.
+M071 | Loose globular cluster in Sagitta, once thought to be an open cluster. ~13,000 ly.
+M072 | Faint, distant globular cluster in Aquarius. ~55,000 ly.
+M073 | An asterism of four unrelated stars in Aquarius, not a true cluster.
+M074 | Phantom Galaxy - face-on grand-design spiral of low surface brightness; needs dark skies. ~32 million ly.
+M075 | Very dense globular cluster in Sagittarius. ~67,500 ly.
+M076 | Little Dumbbell Nebula - faint planetary nebula in Perseus. ~2,500 ly.
+M077 | Seyfert galaxy in Cetus with a very active, bright nucleus. ~47 million ly.
+M078 | Brightest reflection nebula in the sky, a blue dusty cloud in Orion. ~1,350 ly.
+M079 | Globular cluster in Lepus, possibly captured from the Canis Major dwarf galaxy. ~41,000 ly.
+M080 | One of the densest globular clusters, in Scorpius. ~32,600 ly.
+M081 | Bode's Galaxy - bright grand-design spiral in Ursa Major, paired with M82. ~12 million ly.
+M082 | Cigar Galaxy - edge-on starburst galaxy with red hydrogen jets blasting from its core. ~12 million ly.
+M083 | Southern Pinwheel - bright barred spiral in Hydra with many supernovae. ~15 million ly.
+M084 | Lenticular galaxy at the start of Markarian's Chain in Virgo. ~60 million ly.
+M085 | Lenticular galaxy in Coma Berenices, northern edge of the Virgo Cluster. ~60 million ly.
+M086 | Elliptical/lenticular galaxy in Markarian's Chain, moving towards us. ~52 million ly.
+M087 | Giant elliptical with a jet from its black hole - the first black hole ever imaged (EHT, 2019). ~53 million ly.
+M088 | Multi-armed spiral galaxy in the Virgo Cluster. ~47 million ly.
+M089 | Nearly round elliptical galaxy in the Virgo Cluster. ~50 million ly.
+M090 | Spiral galaxy in Virgo that is moving towards us. ~58 million ly.
+M091 | Barred spiral in Coma Berenices, faintest of the Messier galaxies in Virgo. ~63 million ly.
+M092 | Bright globular in Hercules, often overlooked next to M13. ~26,700 ly.
+M093 | Open cluster in Puppis, wedge-shaped with blue giants. ~3,600 ly.
+M094 | Croc's Eye Galaxy - spiral with a bright inner ring of star formation. ~16 million ly.
+M095 | Barred spiral in Leo with a ring around its core. ~33 million ly.
+M096 | Spiral galaxy, brightest of the Leo I group. ~31 million ly.
+M097 | Owl Nebula - round planetary nebula in Ursa Major with two dark 'eyes'. ~2,000 ly.
+M098 | Nearly edge-on spiral in Coma Berenices, approaching us. ~44 million ly.
+M099 | Coma Pinwheel - lopsided face-on spiral in the Virgo Cluster. ~50 million ly.
+M100 | Grand-design spiral in Coma Berenices, one of the brightest Virgo Cluster galaxies. ~55 million ly.
+M101 | Pinwheel Galaxy - large face-on spiral in Ursa Major; low surface brightness, needs long exposure. ~21 million ly.
+M102 | Spindle Galaxy (NGC 5866) - edge-on lenticular galaxy with a thin dust lane. ~50 million ly.
+M103 | Small, arrow-shaped open cluster in Cassiopeia. ~9,000 ly.
+M104 | Sombrero Galaxy - bright bulge cut by a prominent dust lane, seen almost edge-on. ~31 million ly.
+M105 | Elliptical galaxy in the Leo I group. ~32 million ly.
+M106 | Spiral in Canes Venatici with an active nucleus and extra 'anomalous' arms in H-alpha. ~24 million ly.
+M107 | Loose globular cluster in Ophiuchus. ~20,900 ly.
+M108 | Surfboard Galaxy - edge-on barred spiral near the Owl Nebula; frame both together. ~46 million ly.
+M109 | Barred spiral in Ursa Major, close to the star Phecda. ~83 million ly.
+M110 | Dwarf elliptical satellite of the Andromeda Galaxy. ~2.7 million ly.
+S001 | Brightest star in the night sky, a white A-type star with a faint white-dwarf companion (Sirius B). 8.6 ly.
+S002 | Second-brightest star, a luminous white-yellow bright giant in Carina. ~310 ly.
+S003 | Orange giant and brightest star of the northern sky, moving fast through the galaxy. 37 ly.
+S004 | Blue-white A-type star surrounded by a dusty debris disc; corner of the Summer Triangle. 25 ly.
+S005 | A pair of yellow giant stars orbiting closely, shining as one. 43 ly.
+S006 | Blue supergiant marking Orion's foot, tens of thousands of times the Sun's luminosity. ~860 ly.
+S007 | White F-type star with a white-dwarf companion, one of our nearest neighbours. 11.5 ly.
+S008 | Hot blue star spinning so fast it is strongly flattened. ~140 ly.
+S009 | Red supergiant on Orion's shoulder, a semi-regular variable destined to go supernova. ~550 ly.
+S010 | Blue giant triple star, the 'pointer' to the Southern Cross. ~390 ly.
+S011 | Fast-spinning white star of the Summer Triangle. 17 ly.
+S012 | Brightest star of the Southern Cross, a multiple system of hot blue stars. ~320 ly.
+S013 | Orange giant marking the eye of Taurus, in front of the Hyades cluster. 65 ly.
+S014 | Red supergiant heart of Scorpius with a faint blue companion. ~550 ly.
+S015 | Close pair of hot blue stars orbiting every 4 days, in Virgo. ~250 ly.
+S016 | Orange giant, brighter twin of Gemini, with a known exoplanet. 34 ly.
+S017 | White star with a famous dust ring, the 'lonely star' of autumn. 25 ly.
+S018 | Blue-white supergiant, among the most luminous stars visible to the naked eye. ~2,600 ly.
+S019 | Blue giant in the Southern Cross. ~280 ly.
+S020 | Blue-white star at the heart of Leo, spinning near break-up speed. 79 ly.
+S021 | Blue bright giant in Canis Major. ~430 ly.
+S022 | Six-star system; the two main stars split in a small telescope (~5 arcsec). 51 ly.
+S023 | Blue multiple star forming the sting of Scorpius. ~570 ly.
+S024 | Red giant at the top of the Southern Cross. 88 ly.
+S025 | Blue giant on Orion's western shoulder. ~250 ly.
+S026 | Blue giant on the tip of Taurus's horn. ~130 ly.
+S027 | White giant in Carina, near the Southern Pointers. ~110 ly.
+S028 | Blue supergiant, the middle star of Orion's Belt. ~2,000 ly.
+S029 | Blue-white star, brightest of Grus. ~100 ly.
+S030 | Hot triple star at the east of Orion's Belt; the Flame and Horsehead nebulae lie beside it. ~1,260 ly.
+S031 | Brightest star of the Big Dipper, a chemically peculiar A-type star. 83 ly.
+S032 | Orange giant, one of the Big Dipper's pointers to Polaris. ~120 ly.
+S033 | Yellow-white supergiant inside the Alpha Persei star cluster. ~510 ly.
+S034 | Yellow-white supergiant in Canis Major. ~1,600 ly.
+S035 | Blue-white giant, brightest star of the Sagittarius teapot. ~140 ly.
+S036 | Hot blue star at the end of the Big Dipper's handle. ~100 ly.
+S037 | Yellow-white giant in the tail of Scorpius. ~300 ly.
+S038 | Eclipsing binary of two white stars in Auriga. 81 ly.
+S039 | Orange bright giant, brightest of the Southern Triangle. ~390 ly.
+S040 | White subgiant at the feet of Gemini. ~110 ly.
+S041 | Blue subgiant in Pavo. ~180 ly.
+S042 | The North Star - a Cepheid variable supergiant within 1 degree of the celestial pole. ~430 ly.
+S043 | Blue giant 'announcer' of Sirius, a pulsating Beta Cephei variable. ~490 ly.
+S044 | Orange giant, the 'solitary one' in the faint constellation Hydra. ~180 ly.
+S045 | Orange giant, brightest star of Aries. 66 ly.
+S046 | Lovely double of two golden giants, ~4.6 arcsec apart, in Leo's mane. ~130 ly.
+S047 | Orange giant, brightest star of Cetus. ~96 ly.
+S048 | Blue-white star at the Teapot's handle in Sagittarius. ~230 ly.
+S049 | Red giant in Andromeda; the galaxy NGC 404 'Mirach's Ghost' lies 7 arcmin away. ~200 ly.
+S050 | Blue-white binary shared by Andromeda and the Great Square of Pegasus. ~97 ly.
+S051 | White fast-rotating star at Ophiuchus's head. 49 ly.
+S052 | Orange giant, one of the Guardians of the Pole in the Little Dipper. ~130 ly.
+S053 | Blue supergiant marking Orion's knee. ~650 ly.
+S054 | Colourful double star - golden primary with a blue companion ~9.6 arcsec away. ~350 ly.
+S055 | The Demon Star - an eclipsing binary that dims by a magnitude every 2.87 days. 90 ly.
+S056 | White star marking the tail of Leo. 36 ly.
+S057 | Double star in the Big Dipper's handle (~14 arcsec), with Alcor nearby to the eye. 83 ly.
+S058 | Orange giant at the base of Cassiopeia's W. ~230 ly.
+S059 | Yellow-white pulsating star at the end of Cassiopeia's W. 54 ly.
+S060 | Famous gold and blue double star (~35 arcsec) marking the beak of Cygnus. ~430 ly.

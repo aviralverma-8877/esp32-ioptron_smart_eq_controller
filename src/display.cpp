@@ -1,3 +1,5 @@
+// display.cpp - ST7789 status page (mount / GPS / SD). Redraws only changed fields;
+// ui.cpp owns the screen and calls displayTick() only while this page is shown.
 #include "display.h"
 #include "config.h"
 #include "mount.h"
@@ -5,12 +7,13 @@
 #include "gps.h"
 #include "gps_sync.h"
 #include "message.h"
+#include "sky.h"
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
 #include <string.h>
 
-static Adafruit_ST7789 tft(TFT_CS, TFT_DC, TFT_RST);
+Adafruit_ST7789 tft(TFT_CS, TFT_DC, TFT_RST);
 static const int SCR_W = 320;
 
 struct Row { int16_t y; uint8_t sz; const char *label; char cache[34]; };
@@ -21,10 +24,10 @@ static Row rows[] = {
   { 136, 2, "Stat",  "" }, { 158, 1, "Trk",   "" }, { 170, 1, "Pos", "" },
 };
 enum { R_MODEL, R_FW, R_TIME, R_DATE, R_ZONE, R_SITE, R_STAT, R_TRK, R_POS };
-static char hdrCache[28] = "", gpsCache[40] = "", ftrCache[40] = "";
+static char hdrCache[32] = "", gpsCache[40] = "", fixCache[40] = "", ftrCache[40] = "";
 
-static void txt(int x, int y, const char *s, uint16_t fg, uint8_t sz) {
-  tft.setTextSize(sz); tft.setTextColor(fg, BG); tft.setCursor(x, y); tft.print(s);
+static void txt(int x, int y, const char *s, uint16_t fg, uint8_t sz, uint16_t bg = BG) {
+  tft.setTextSize(sz); tft.setTextColor(fg, bg); tft.setCursor(x, y); tft.print(s);
 }
 
 static void staticLayout() {
@@ -48,13 +51,18 @@ static void row(int i, const char *val, uint16_t color) {
 
 static void header() {
   const char *st = btConnected ? "BRIDGE" : (linkUp ? "MOUNT OK" : "NO MOUNT");
-  char h[28];
-  snprintf(h, sizeof h, "%s|%s", BT_NAME, st);
+  bool sd = skyReady();
+  char h[32];
+  snprintf(h, sizeof h, "%s|%s|%d", BT_NAME, st, sd);
   if (strcmp(h, hdrCache)) {
     strncpy(hdrCache, h, sizeof hdrCache - 1);
     tft.fillRect(0, 2, SCR_W, 22, BG);
     txt(4, 4, BT_NAME, C_HEAD, 2);
     txt(4 + 12 * 12, 8, st, btConnected ? C_WARN : (linkUp ? C_OK : C_BAD), 1);
+    if (sd) {                                  // "SD" badge: catalog available
+      tft.fillRoundRect(SCR_W - 26, 5, 22, 15, 3, C_OK);
+      txt(SCR_W - 21, 9, "SD", BG, 1, C_OK);
+    }
   }
 }
 
@@ -69,11 +77,10 @@ static void gpsBlock() {
     txt(4, 192, "GPS:", C_LBL, 2);
     txt(4 + 5 * 12, 192, s, lk ? C_OK : C_WARN, 2);
   }
-  static char fx[40] = "";
   char d[40];
   snprintf(d, sizeof d, "%-38s", syncMsg);
-  if (strcmp(d, fx)) {
-    strncpy(fx, d, sizeof fx - 1);
+  if (strcmp(d, fixCache)) {
+    strncpy(fixCache, d, sizeof fixCache - 1);
     tft.fillRect(0, 212, SCR_W, 10, BG);
     txt(4, 212, syncMsg, syncMsgColor, 1);
   }
@@ -90,7 +97,8 @@ static void footer() {
     }
     return;
   }
-  if (!M.everOk)        snprintf(f, sizeof f, "waiting for mount...        ");
+  if (skyReady())       snprintf(f, sizeof f, "A/B: sky catalog   hold B: GPS sync");
+  else if (!M.everOk)   snprintf(f, sizeof f, "waiting for mount...        ");
   else if (btConnected) snprintf(f, sizeof f, "bridging - values held      ");
   else snprintf(f, sizeof f, "mount src:%s  upd %lus       ",
                 M.gpsSrc[0] ? M.gpsSrc : "?", (millis() - M.lastOkMs) / 1000);
@@ -139,10 +147,19 @@ void displayBegin() {
   tft.setSPISpeed(TFT_HZ);
   tft.invertDisplay(TFT_INVERT);
   tft.setRotation(1);              // 320x240 landscape
+  tft.cp437(true);                 // correct CP437 table: 0xF8 = degree sign
+  tft.setTextWrap(false);
   LOG("[tft] %d x %d\n", tft.width(), tft.height());
   staticLayout();
   header();
   footer();
+}
+
+void displayStatusEnter() {
+  for (auto &r : rows) r.cache[0] = 0;
+  hdrCache[0] = gpsCache[0] = fixCache[0] = ftrCache[0] = 0;
+  staticLayout();
+  render();
 }
 
 void displayTick() {
