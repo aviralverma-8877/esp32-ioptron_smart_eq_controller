@@ -1,0 +1,12 @@
+{
+  "version": "2026.10.18-0004",
+  "objects": 178,
+  "messier": 110,
+  "stars": 60,
+  "planets": 8,
+  "image_mb": 64,
+  "files": {
+    "smarteq-sd.img.zip": 1391243,
+    "smarteq-sd-files.zip": 1364286
+  }
+}

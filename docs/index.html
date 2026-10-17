@@ -43,12 +43,24 @@
   table { border-collapse: collapse; width: 100%; font-size: .9rem; margin: .5rem 0; }
   td, th { border: 1px solid #232b3d; padding: .4rem .6rem; text-align: left; }
   th { color: #fff; }
+  .dl { display: flex; flex-wrap: wrap; gap: .75rem; margin: 1rem 0 .5rem; }
+  .dl a {
+    flex: 1 1 220px; display: block; text-decoration: none;
+    background: #0b0f1a; border: 1px solid #232b3d; border-radius: 10px; padding: .9rem 1rem;
+  }
+  .dl a:hover { border-color: #ffd15c; }
+  .dl b { display: block; color: #ffd15c; font-size: 1rem; }
+  .dl span { color: #8b94a7; font-size: .85rem; }
+  .dl a.primary { background: #ffd15c; border-color: #ffd15c; }
+  .dl a.primary b { color: #0b0f1a; }
+  .dl a.primary span { color: #3a3320; }
 </style>
 </head>
 <body>
 <main>
   <h1>ESP32 iOptron SmartEQ Controller</h1>
-  <p class="sub">Bluetooth ⇄ RS-232 bridge · status TFT · automatic GPS time &amp; site sync</p>
+  <p class="sub">Bluetooth ⇄ RS-232 bridge · status TFT · automatic GPS time &amp; site sync ·
+     SD-card sky catalog with GoTo &amp; tracking</p>
 
   <div class="card flash">
     <esp-web-install-button manifest="./manifest.json">
@@ -75,6 +87,47 @@
   </ol>
   <p class="muted">After flashing: pair with Bluetooth device <b>“SmartEQ-RJ9”</b>
      (no PIN) and open the serial port it creates at <b>9600&nbsp;8-N-1</b>.</p>
+
+  <h2 id="sdcard">SD card — sky catalog &amp; GoTo</h2>
+  <div class="card">
+    <p style="margin-top:0">Put this on a micro-SD card, insert it in the display module's slot and the
+       controller gains an object browser: pick a target, read what it is and how to image it,
+       then <b>TRACK</b> — the mount slews there and keeps tracking.</p>
+    <p class="muted" id="sdmeta">Messier objects, bright stars, planets &amp; the Moon.</p>
+    <div class="dl">
+      <a class="primary" href="sdcard/smarteq-sd.img.zip" download>
+        <b>Download SD image (.img)</b>
+        <span id="sz-img">flash with balenaEtcher / Rufus · any card ≥ 64 MB</span></a>
+      <a href="sdcard/smarteq-sd-files.zip" download>
+        <b>Download files (.zip)</b>
+        <span id="sz-files">unzip onto a FAT32 card · keeps full capacity</span></a>
+    </div>
+    <h2 style="margin-top:1rem">Option A — flash the image</h2>
+    <ol>
+      <li>Download <b>smarteq-sd.img.zip</b> (no need to unzip).</li>
+      <li>Open <a href="https://etcher.balena.io/">balenaEtcher</a> (or Rufus), choose the zip,
+          select your SD card, and flash. <b>Everything on the card is erased.</b></li>
+      <li>The card shows up as a 64 MB drive named <code>SMARTEQ</code>; the rest of a larger card stays unused.</li>
+    </ol>
+    <h2>Option B — copy the files</h2>
+    <ol>
+      <li>Format the card as <b>FAT32</b>.</li>
+      <li>Unzip <b>smarteq-sd-files.zip</b> to the card's root so it contains a <code>SMARTEQ</code> folder.</li>
+    </ol>
+    <h2>Using it</h2>
+    <table>
+      <tr><th>Button</th><th>Action</th></tr>
+      <tr><td><b>A</b> once</td><td>next item (hold = fast scroll)</td></tr>
+      <tr><td><b>A</b> twice</td><td>select / open / <b>TRACK</b> (twice again to confirm)</td></tr>
+      <tr><td><b>B</b></td><td>back · cancel an armed TRACK</td></tr>
+      <tr><td>any button while slewing</td><td>stop the mount</td></tr>
+    </table>
+    <p class="muted">TRACK is only enabled for objects at least 10° above the horizon and 15° away
+       from the Sun. GoTo is disabled while a Bluetooth app is connected.</p>
+    <p class="muted">Credits: catalog from OpenNGC (CC-BY-SA-4.0) and SIMBAD/CDS; deep-sky images
+       from DSS2 (STScI) via CDS hips2fits; planet images NASA/JPL/ESA (public domain), Moon by
+       Gregory H. Revera (CC-BY-SA-3.0).</p>
+  </div>
 
   <h2>What gets written</h2>
   <table>
@@ -105,6 +158,16 @@ esptool.py --chip esp32 write_flash 0x0 smarteq-rj9-merged.bin</pre>
   fetch('./manifest.json').then(r => r.json()).then(m => {
     document.getElementById('ver').textContent = 'firmware version: ' + m.version;
   }).catch(() => { document.getElementById('ver').textContent = ''; });
+  const mb = n => (n / 1048576).toFixed(1) + ' MB';
+  fetch('./sdcard/sdcard.json').then(r => r.json()).then(s => {
+    document.getElementById('sdmeta').textContent =
+      `${s.objects} objects — ${s.messier} Messier, ${s.stars} bright stars, ` +
+      `${s.planets} planets & Moon · version ${s.version}`;
+    document.getElementById('sz-img').textContent =
+      `${mb(s.files['smarteq-sd.img.zip'])} · flash with balenaEtcher / Rufus · card ≥ ${s.image_mb} MB`;
+    document.getElementById('sz-files').textContent =
+      `${mb(s.files['smarteq-sd-files.zip'])} · unzip onto a FAT32 card · keeps full capacity`;
+  }).catch(() => {});
 </script>
 </body>
 </html>

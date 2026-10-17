@@ -24,6 +24,7 @@ import argparse
 import csv
 import datetime
 import io
+import json
 import math
 import re
 import struct
@@ -499,6 +500,17 @@ def main():
         z.writestr("smarteq-sd.img", img)
     for f in ("smarteq-sd.img.zip", "smarteq-sd-files.zip"):
         print(f"[out] docs/sdcard/{f}  {(OUT_DIR / f).stat().st_size // 1024} KB")
+
+    # metadata for the GitHub Pages download section (docs/index.html)
+    counts = {c: sum(1 for o in objs if o["key"][0] == c) for c in "MSP"}
+    meta = {
+        "version": datetime.datetime.now().strftime("%Y.%m.%d-%H%M"),
+        "objects": len(objs), "messier": counts["M"], "stars": counts["S"],
+        "planets": counts["P"], "image_mb": IMG_MB,
+        "files": {f: (OUT_DIR / f).stat().st_size
+                  for f in ("smarteq-sd.img.zip", "smarteq-sd-files.zip")},
+    }
+    (OUT_DIR / "sdcard.json").write_text(json.dumps(meta, indent=2) + "\n")
 
 
 if __name__ == "__main__":
