@@ -428,6 +428,14 @@ static const int SD_X = 244;                              // live text beside th
 
 enum BtnState { BS_READY, BS_CONFIRM, BS_SLEW, BS_TRACK, BS_MSG };
 static const SkyObj *obj = nullptr;
+static int8_t   trackCat = -1;                  // object the last GoTo ended tracking on
+static int      trackIdx = -1;
+
+// :GAS# 1 tracking, 3 guiding, 4 meridian flip, 5 tracking + PEC
+static bool mountTracking() {
+  int s = M.statusCode;
+  return s == 1 || s == 3 || s == 4 || s == 5;
+}
 static BtnState bs = BS_READY;
 static uint32_t bsMs = 0, flashUntil = 0, altMs = 0, drawMs = 0;
 static const char *msgLbl = "";                 // BS_MSG: label / colour / fill / duration
@@ -568,7 +576,9 @@ static void objEnter(int i) {
   const SkyObj *o = skyGet(listCat, i);
   if (!o) return;
   listSel[listCat] = i; obj = o;
-  scr = SC_OBJECT; bsSet(BS_READY); flashUntil = 0;
+  scr = SC_OBJECT; flashUntil = 0;
+  bool tracked = trackCat == listCat && trackIdx == i && mountTracking();
+  bsSet(tracked ? BS_TRACK : BS_READY);
   btnCache[0] = sideCache[0] = liveCache[0] = hintCache[0] = 0;
   tft.fillScreen(BG);
 
@@ -608,7 +618,10 @@ static void doGoto() {
   bsMsg("GOTO...", C_WARN, true, 10000);
   drawButton();                                   // feedback before the ~1 s block
   switch (mountGoto(ra, dec)) {
-    case GOTO_OK:       seenSlew = false; mountSetFastStatus(true); bsSet(BS_SLEW); break;
+    case GOTO_OK:
+      seenSlew = false; mountSetFastStatus(true); bsSet(BS_SLEW);
+      trackCat = listCat; trackIdx = listSel[listCat];
+      break;
     case GOTO_REJECTED: bsMsg("BELOW HRZN", C_BAD, true, RESULT_MS); break;
     case GOTO_NO_LINK:  bsMsg("NO MOUNT", C_BAD, true, RESULT_MS); break;
     case GOTO_BT_BUSY:  bsMsg("BT BUSY", C_WARN, false, RESULT_MS); break;
@@ -669,6 +682,9 @@ static void objTick(bool force) {
   if (bs == BS_CONFIRM && now - bsMs > CONFIRM_MS) bsSet(BS_READY);
   if (bs == BS_MSG && now - bsMs > msgDur) bsSet(BS_READY);
   if (bs == BS_SLEW) slewTick();
+  // stopped elsewhere (menu, hand controller): back to TRACK. Grace period
+  // covers the poll that still shows "stopped" right after :ST1#.
+  if (bs == BS_TRACK && now - bsMs > 5000 && !mountTracking()) { trackCat = -1; bsSet(BS_READY); }
   if (now - altMs >= ALT_OBJ_MS) { calcAlt(); drawLiveAlt(); }
   if (force || now - drawMs >= 100) objRefresh();
 }
