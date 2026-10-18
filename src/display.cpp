@@ -97,7 +97,7 @@ static void footer() {
     }
     return;
   }
-  if (skyReady())       snprintf(f, sizeof f, "A: sky catalog");
+  if (skyReady())       snprintf(f, sizeof f, "BOOT: sky catalog");
   else if (!M.everOk)   snprintf(f, sizeof f, "waiting for mount...        ");
   else if (btConnected) snprintf(f, sizeof f, "bridging - values held      ");
   else snprintf(f, sizeof f, "mount src:%s  upd %lus       ",

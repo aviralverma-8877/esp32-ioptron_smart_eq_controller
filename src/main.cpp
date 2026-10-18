@@ -3,7 +3,7 @@
 //   BT SPP client <-RFCOMM-> ESP32 UART2 (GPIO17/16) <-> MAX3232 <-RS232-> RJ9 -> mount
 //   TFT  (ST7789, HW SPI/VSPI): SCLK18 MOSI23 MISO19  CS25 DC26 RST27
 //   GPS  (NEO-6M): TX -> GPIO32 (UART1 RX, receive only)
-//   LED2 GPIO2 = mount-link indicator ;  BTN A GPIO36 / BTN B GPIO39 = UI
+//   LED2 GPIO2 = mount-link indicator ;  BTN A GPIO36 up / B GPIO39 down / BOOT GPIO0 select = UI
 //   SD card on the LCD module (CS GPIO33, shared VSPI) = sky database + GoTo
 //
 // Modules:  config.h  message  mount  bt_bridge  gps  gps_sync  display
@@ -29,6 +29,7 @@ void setup() {
   Serial.begin(DEBUG_BAUD);
 #endif
 
+  btBegin();                      // first: Bluedroid needs a big heap before SD/sky allocate
   mountBegin();
   gpsBegin();
   gpsSyncBegin();
@@ -36,11 +37,10 @@ void setup() {
   skyBegin();
   buttonsBegin();
   uiBegin();
-  btBegin();
 
-  LOG("\n[bridge] %s  BT-SPP <-> RS232 @ %d 8N1 (RX=%d TX=%d)  GPS RX=%d  BTN A=%d B=%d\n",
+  LOG("\n[bridge] %s  BT-SPP <-> RS232 @ %d 8N1 (RX=%d TX=%d)  GPS RX=%d  BTN A=%d B=%d SEL=%d\n",
       BT_NAME, (int)BRIDGE_BAUD, RS232_RX_PIN, RS232_TX_PIN, GPS_RX_PIN,
-      BTN_NEXT_PIN, BTN_SYNC_PIN);
+      BTN_A_PIN, BTN_B_PIN, BTN_SEL_PIN);
 
   for (int i = 0; i < 3; i++) {
     digitalWrite(ACT_LED_PIN, HIGH); delay(60);

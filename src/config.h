@@ -24,11 +24,14 @@
 #ifndef ACT_LED_PIN
 #define ACT_LED_PIN 2               // LED2 - lit while the mount link is up
 #endif
-#ifndef BTN_SYNC_PIN
-#define BTN_SYNC_PIN 39             // BTN B (select / back), active-low, ext. pull-up
+#ifndef BTN_A_PIN
+#define BTN_A_PIN 36                // BTN A (up / scroll), active-low, ext. pull-up
 #endif
-#ifndef BTN_NEXT_PIN
-#define BTN_NEXT_PIN 36             // BTN A (next / scroll), active-low, ext. pull-up
+#ifndef BTN_B_PIN
+#define BTN_B_PIN 39                // BTN B (down / scroll), active-low, ext. pull-up
+#endif
+#ifndef BTN_SEL_PIN
+#define BTN_SEL_PIN 0               // BOOT button: short = select, long = back
 #endif
 #ifndef SD_CS_PIN
 #define SD_CS_PIN 33                // SD card on the LCD module (shared VSPI)

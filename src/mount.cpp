@@ -238,6 +238,12 @@ GotoResult mountGoto(double raH, double decD) {
   return GOTO_COMM_ERR;
 }
 
+GotoResult mountGotoZero() {
+  if (btConnected)    return GOTO_BT_BUSY;
+  if (!mountLinkUp()) return GOTO_NO_LINK;
+  return ask1(":MH#") ? GOTO_OK : GOTO_COMM_ERR;
+}
+
 bool mountStop()              { return ask1(":q#"); }
 bool mountSetTracking(bool on) { return ask1(on ? ":ST1#" : ":ST0#"); }
 

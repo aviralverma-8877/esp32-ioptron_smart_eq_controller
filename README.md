@@ -44,8 +44,9 @@ local time, longitude and latitude (`:SC`, `:SL`, `:Sg`, `:St`).
 | TFT SCLK / MOSI / MISO | 18 / 23 / 19 | `SPI_*` | ST7789 (VSPI) |
 | TFT CS / DC / RST | 25 / 26 / 27 | `TFT_*` | ST7789 |
 | LED2 (mount link) | GPIO2 | `IO2` | 470 Ω → LED → GND |
-| BTN B (select / back) | GPIO39 | — | tactile switch to GND, ext. 10 kΩ pull-up |
-| BTN A (next / scroll) | GPIO36 | — | tactile switch to GND, ext. 10 kΩ pull-up |
+| BTN A (up) | GPIO36 | — | tactile switch to GND, ext. 10 kΩ pull-up |
+| BTN B (down) | GPIO39 | — | tactile switch to GND, ext. 10 kΩ pull-up |
+| BOOT (select / hold: back) | GPIO0 | — | on-board BOOT switch; don't hold it while resetting |
 | SD card (on LCD module) | 33 | `SD_CS` | shares VSPI 18/23/19 with the TFT |
 | TOUCH_CS | 13 | — | parked HIGH at boot (unused) |
 | Debug log | GPIO1/3 | `TX`/`RX` | CH340G / USB-C — **log only**, 115200 |
@@ -97,16 +98,17 @@ planets Mercury–Neptune plus the Moon (the Sun is deliberately absent):
 /SMARTEQ/INFO/<key>.TXT  what it is / Scope / Camera / Exposure
 ```
 
-**Buttons** — single press navigates, double press selects: **A** (GPIO36) =
-next (hold = fast scroll), **A twice** = select / open / TRACK, **B** (GPIO39) =
-back. Status page: A opens the catalog; *Sync GPS now* is in the menu.
+**Buttons** — **A** (GPIO36) = up, **B** (GPIO39) = down (hold either = fast
+scroll), **BOOT** (GPIO0) = select / open / TRACK, **hold BOOT** = back. Status
+page: any button opens the catalog; *Sync GPS now* and *Go to zero position*
+(`:MH#`, select twice to confirm) are in the menu.
 
 **Object page** — left: thumbnail + name; right: object info with a suggested
 scope (focal length to frame it on an APS-C sensor), camera/filter and exposure,
 and the **TRACK** button. TRACK is enabled only when the object is ≥ 10° above
 the horizon **and at least 15° from the Sun** (needs time + site from GPS or
-the mount). A twice arms it
-(*CONFIRM?*), A twice again starts the GoTo (B cancels): J2000 → JNow precession on the device (planets / Moon: on-device ephemeris,
+the mount). BOOT arms it
+(*CONFIRM?*), BOOT again starts the GoTo (A / B / hold BOOT cancel): J2000 → JNow precession on the device (planets / Moon: on-device ephemeris,
 Moon with topocentric parallax), then
 `:ST1#` `:Sr` `:Sd` `:MS#` (the same sequence iOptron Commander uses). Any
 button while slewing = **STOP** (`:q#`). GoTo is disabled while a Bluetooth
@@ -191,7 +193,7 @@ GoTo (verified against iOptron Commander on this mount): `:ST1#` tracking on,
 | `src/gps.*` | NEO-6M UART + TinyGPS++ + lock / status |
 | `src/gps_sync.*` | automatic + manual (menu) GPS→mount time/site sync |
 | `src/display.*` | ST7789 + status page (changed-field redraw) |
-| `src/buttons.*` | 10 ms sampled buttons → next / hold / repeat / select / back events |
+| `src/buttons.*` | 10 ms sampled buttons → up / down (+ hold-repeat) / select / back events |
 | `src/sky.*` | SD hot-plug, catalog, thumbnails, info text, precession + alt/az |
 | `src/ephem.*` | planets + Moon positions (JPL elements / Meeus), Sun for the 15° safety guard |
 | `src/ui.*` | screens: status → menu → object list → object page / TRACK |

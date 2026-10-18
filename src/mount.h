@@ -64,6 +64,7 @@ enum GotoResult : uint8_t { GOTO_OK, GOTO_NO_LINK, GOTO_BT_BUSY, GOTO_REJECTED, 
 // iOptron Commander on the SmartEQ Pro). GOTO_REJECTED = :MS# answered '0'
 // (below horizon / beyond limits).
 GotoResult mountGoto(double raHoursJNow, double decDegJNow);
+GotoResult mountGotoZero();                // :MH# - slew to zero (home) position; ends status 7
 bool       mountStop();                    // :q#  - stop any slew/move
 bool       mountSetTracking(bool on);      // :ST1# / :ST0#
 // While true, the idle poll only cycles :GAS# and :GEC# (fast slew feedback).
