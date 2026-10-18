@@ -102,18 +102,18 @@ static void decGLT(const char *r) {                // sMMMd YYMMDD HHMMSS #
   M.timeValid    = true;
 }
 static bool lonOk = false, latOk = false;           // siteValid once both decoded
-static void decGG(const char *r) {                 // longitude, 0.01"  (:Gg#)
+static void decGG(const char *r) {                 // longitude, arc-sec  (:Gg#)
   if (strlen(r) < 5 || (r[0] != '+' && r[0] != '-')) return;
-  double d = atol(r + 1) / 360000.0 * (r[0] == '-' ? -1 : 1);
+  double d = atol(r + 1) / 3600.0 * (r[0] == '-' ? -1 : 1);
   snprintf(M.lonStr, sizeof M.lonStr, "%.4f%c", fabs(d), d < 0 ? 'W' : 'E');
   M.lonDeg = d; lonOk = true; M.siteValid = lonOk && latOk;
 }
-static void decGT(const char *r) {                 // latitude, 0.01"  (:Gt#)
+static void decGT(const char *r) {                 // latitude, arc-sec  (:Gt#)
   if (strlen(r) < 5 || (r[0] != '+' && r[0] != '-')) return;
-  double d = atol(r + 1) / 360000.0 * (r[0] == '-' ? -1 : 1);
+  double d = atol(r + 1) / 3600.0 * (r[0] == '-' ? -1 : 1);
   snprintf(M.latStr, sizeof M.latStr, "%.4f%c%s", fabs(d), d < 0 ? 'S' : 'N',
            fabs(d) > 90.0 ? "?" : "");
-  M.latDeg = d; latOk = true; M.siteValid = lonOk && latOk;   // raw, sky.cpp sorts the offset
+  M.latDeg = d; latOk = true; M.siteValid = lonOk && latOk;
 }
 static void decGAS(const char *r) {                // G S T M X H
   if (strlen(r) < 6 || !allDigits(r, 6)) return;

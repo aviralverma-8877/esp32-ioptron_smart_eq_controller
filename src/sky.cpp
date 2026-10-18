@@ -242,12 +242,7 @@ bool skySite(double &latDeg, double &lonDeg) {
   }
   if (M.siteValid) {
     lonDeg = M.lonDeg;
-    // The SmartEQ Pro reports :Gt# latitude with a +90 deg offset (observed
-    // +36744000 = 102.07 deg at a site near 12 N), i.e. 0..180 = 90S..90N.
-    // A real latitude can never exceed 90, so strip the offset when present.
-    double lat = M.latDeg;
-    if (lat > 90.0) lat -= 90.0;
-    latDeg = lat;
+    latDeg = M.latDeg;                // :Gt#, arc-seconds, plain signed latitude
     return true;
   }
   return false;

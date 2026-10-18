@@ -156,9 +156,16 @@ static void statusEvent(BtnEvent e) {
 }
 
 // ---- MENU ---------------------------------------------------------------------
-static const int MENU_N = 7, MENU_Y = 34, MENU_H = 27;
+static const int MENU_N = 8, MENU_Y = 34, MENU_H = 24;
 static const int MENU_ZERO = 5;                   // "Go to zero position" row
+static const int MENU_TZ = 6;                     // "Time zone" row (edited in place)
 static int menuSel = 0;
+static bool tzEdit = false;                       // TZ row: A/B change, BOOT save, hold BOOT cancel
+static int  tzVal  = TZ_AUTO;
+
+static void fmtTz(int m, char *b, size_t n) {
+  snprintf(b, n, "UTC%c%02d:%02d", m < 0 ? '-' : '+', abs(m) / 60, abs(m) % 60);
+}
 static bool     zeroArmed = false;                // zero row awaiting its confirm press
 static uint32_t zeroArmMs = 0;
 static bool     zeroSlew = false, zeroSeenSlew = false;   // :MH# slew in progress
@@ -179,6 +186,14 @@ static void menuRow(int i) {
       if (zeroArmed) { snprintf(b, sizeof b, "Zero: BOOT again=GO"); fg = C_WARN; }
       else             snprintf(b, sizeof b, "Go to zero position");
       break;
+    case MENU_TZ: {
+      char z[12];
+      int v = tzEdit ? tzVal : gpsSyncTzSetting();
+      fmtTz(v == TZ_AUTO ? gpsSyncTzAuto() : v, z, sizeof z);
+      if (tzEdit) { snprintf(b, sizeof b, "TZ < %s%s >", v == TZ_AUTO ? "Auto " : "", z); fg = C_WARN; }
+      else          snprintf(b, sizeof b, "Time zone %s%s", v == TZ_AUTO ? "A " : "", z);
+      break;
+    }
     default: snprintf(b, sizeof b, "Back"); break;
   }
   tft.fillRect(0, y, SCR_W, MENU_H - 2, bg);
@@ -226,7 +241,7 @@ static void zeroTick() {
 }
 
 static void menuEnter() {
-  scr = SC_MENU;
+  scr = SC_MENU; tzEdit = false;
   titleBar("Sky catalog");
   for (int i = 0; i < MENU_N; i++) menuRow(i);
   footHint("A:up  B:down  BOOT:select  hold BOOT:back");
@@ -234,7 +249,32 @@ static void menuEnter() {
 
 static void listEnter(SkyCat c);
 
+// TZ edit: steps of 15 min between UTC-12 and UTC+14, "Auto" past either end
+static void tzEvent(BtnEvent e) {
+  switch (e) {
+    case EV_UP: case EV_UP_REP: case EV_DOWN: case EV_DOWN_REP: {
+      int d = (e == EV_UP || e == EV_UP_REP) ? 15 : -15;
+      if (tzVal == TZ_AUTO) tzVal = gpsSyncTzAuto();   // leave Auto at its own value
+      else {
+        tzVal += d;
+        if (tzVal > TZ_MAX || tzVal < TZ_MIN) tzVal = TZ_AUTO;
+      }
+      break;
+    }
+    case EV_SEL:
+      tzEdit = false;
+      gpsSyncTzSet(tzVal);
+      setMsg("Time zone saved - syncing", C_OK, 3000);
+      manualSync();
+      break;
+    case EV_BACK: tzEdit = false; break;
+    default: break;
+  }
+  menuRow(MENU_TZ);
+}
+
 static void menuEvent(BtnEvent e) {
+  if (tzEdit) { tzEvent(e); return; }
   if (zeroArmed && !(e == EV_SEL && menuSel == MENU_ZERO)) zeroDisarm();
   switch (e) {
     case EV_UP: case EV_UP_REP: case EV_DOWN: case EV_DOWN_REP: {
@@ -268,6 +308,10 @@ static void menuEvent(BtnEvent e) {
             doGotoZero();
             statusEnter();
           }
+          break;
+        case MENU_TZ:
+          tzEdit = true; tzVal = gpsSyncTzSetting();
+          menuRow(MENU_TZ);
           break;
         default: statusEnter(); break;
       }

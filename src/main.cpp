@@ -49,15 +49,36 @@ void setup() {
 }
 
 #if defined(DEBUG_LOG) && DEBUG_LOG
+static bool stateLog = true;
+
+// USB debug console: a line starting with ':' (e.g. ":GAC#") goes to the mount
+// as-is and the reply is printed; "." toggles the [state] line. Idle only.
+static void debugConsole() {
+  static char line[48];
+  static uint8_t n = 0;
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+    if (c != '\r' && c != '\n') { if (n < sizeof line - 1) line[n++] = c; continue; }
+    if (!n) continue;
+    line[n] = 0; n = 0;
+    if (!strcmp(line, ".")) { stateLog = !stateLog; continue; }
+    if (line[0] != ':') { LOG("[cons] ':cmd#' -> mount, '.' toggles [state]\n"); continue; }
+    if (btConnected) { LOG("[cons] BT client active - not sent\n"); continue; }
+    char r[64];
+    size_t got = askMount(line, r, sizeof r, 1000);
+    LOG("[cons] %s -> %s\n", line, got ? r : "(no reply)");
+  }
+}
+
 static void debugState() {
   static uint32_t t = 0;
-  if (millis() - t < 3000) return;
+  if (!stateLog || millis() - t < 3000) return;
   t = millis();
   char gs[32]; gpsStatusStr(gs, sizeof gs);
-  LOG("[state] %s(%s) link=%s | %s %s | lon %s lat %s | %s %s | RA %s Dec %s | "
+  LOG("[state] %s(%s) link=%s | %s %s | lon %s lat %s hemi %s | %s %s | RA %s Dec %s | "
       "GPS %s | SD %s | %s\n",
       M.modelName, M.model, linkUp ? "UP" : "down", M.dateStr, M.timeStr,
-      M.lonStr, M.latStr, M.statusStr, M.slewRate, M.raStr, M.decStr,
+      M.lonStr, M.latStr, M.hemi, M.statusStr, M.slewRate, M.raStr, M.decStr,
       gs, skyReady() ? "ok" : "-", btConnected ? "BT-client" : "polling");
 }
 #endif
@@ -81,6 +102,7 @@ void loop() {
   uiTick();                               // status page or catalog UI
 
 #if defined(DEBUG_LOG) && DEBUG_LOG
+  debugConsole();
   debugState();
 #endif
 
