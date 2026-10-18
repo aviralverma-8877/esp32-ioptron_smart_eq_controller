@@ -20,3 +20,4 @@ int  gpsSyncTzSetting();             // TZ_AUTO or fixed minutes
 int  gpsSyncTzAuto();                // what "auto" resolves to right now
 int  gpsSyncTzEffective();           // offset the next sync will use
 void gpsSyncTzSet(int minutes);      // TZ_AUTO or minutes; saved, re-arms the sync
+void gpsSyncFactoryReset();          // erase the saved settings (NVS "smarteq")

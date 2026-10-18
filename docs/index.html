@@ -85,8 +85,42 @@
     <li>On first install, choose <b>Erase device</b> if offered (clears any old
         Bluetooth pairing / NVS).</li>
   </ol>
-  <p class="muted">After flashing: pair with Bluetooth device <b>“SmartEQ-RJ9”</b>
-     (no PIN) and open the serial port it creates at <b>9600&nbsp;8-N-1</b>.</p>
+  <p class="muted">After flashing: pair from <b>Menu → Bluetooth → Pair new device</b>
+     (see <a href="#bluetooth">Bluetooth &amp; Stellarium</a>) and open the serial port it
+     creates at <b>9600&nbsp;8-N-1</b>. <b>Updating from an older version?</b> Remove
+     “SmartEQ-RJ9” from your phone / PC's Bluetooth devices first, then pair again.</p>
+
+  <h2 id="bluetooth">Bluetooth &amp; Stellarium</h2>
+  <div class="card">
+    <p style="margin-top:0">The controller stays <b>hidden</b> and only accepts devices it has
+       paired with. Pairings are remembered across reboots and updates.</p>
+    <h2 style="margin-top:1rem">Pair a phone or PC</h2>
+    <ol>
+      <li>On the controller: <b>Menu → Bluetooth → Pair new device</b>. It is visible as
+          <b>SmartEQ-RJ9</b> for 2 minutes.</li>
+      <li>On the phone / PC: add Bluetooth device <b>SmartEQ-RJ9</b>.</li>
+      <li>A 6-digit code appears on the controller. If it matches the one on your phone / PC,
+          press <b>BOOT</b> (hold BOOT to reject) and confirm on the other device too.</li>
+    </ol>
+    <p class="muted">The same screen lists paired devices — select one twice to forget it.
+       Windows creates two COM ports per pairing: use the <b>Outgoing</b> one
+       (<i>Settings → Bluetooth &amp; devices → More Bluetooth settings → COM Ports</i>).
+       The Incoming port hangs any program that opens it.</p>
+    <h2>Stellarium on Windows</h2>
+    <ol>
+      <li>Install the <a href="https://www.ascom-standards.org/">ASCOM Platform</a> and
+          <b>iOptron Commander 2014</b> (driver “iOptron CEM60, iEQ45Pro/30Pro, CEM25,
+          SmartEQ Pro+…”).</li>
+      <li>Start Commander once, pick the <b>Outgoing</b> Bluetooth COM port, connect, close.</li>
+      <li>Stellarium → <b>Telescope Control</b> (Ctrl+0) → add: <b>ASCOM</b>, that iOptron
+          driver, equinox <b>JNow</b>, <i>connect at startup</i>.</li>
+      <li>Select an object and press <b>Ctrl+1</b> to slew (Ctrl+3 sync, Ctrl+5 abort).</li>
+    </ol>
+    <p class="muted">If the controller restarts while connected, close Stellarium <b>and</b>
+       iOptron Commander and start Stellarium again (Windows doesn't reopen the Bluetooth link
+       on its own). After <i>Go to zero position</i> the mount stops tracking and a Stellarium
+       GoTo won't restart it: abort, then turn tracking on in Commander.</p>
+  </div>
 
   <h2 id="sdcard">SD card — sky catalog &amp; GoTo</h2>
   <div class="card">
@@ -125,8 +159,10 @@
     </table>
     <p class="muted">TRACK is only enabled for objects at least 10° above the horizon and 15° away
        from the Sun. GoTo is disabled while a Bluetooth app is connected.
-       The menu also has <b>Sync GPS now</b>, <b>Stop mount</b> and <b>Go to zero position</b>
-       (select it twice to confirm). Don't hold BOOT while powering on or resetting.</p>
+       The menu also has <b>Sync GPS now</b>, <b>Stop mount</b>, <b>Go to zero position</b>
+       (select twice to confirm), <b>Time zone</b> (Auto from GPS, or A/B in 15-minute steps),
+       <b>Bluetooth</b> (pair / forget devices) and <b>Factory reset</b> (select twice: forgets
+       paired devices and settings, then reboots). Don't hold BOOT while powering on or resetting.</p>
     <p class="muted">Credits: catalog from OpenNGC (CC-BY-SA-4.0) and SIMBAD/CDS; deep-sky images
        from DSS2 (STScI) via CDS hips2fits; planet images NASA/JPL/ESA (public domain), Moon by
        Gregory H. Revera (CC-BY-SA-3.0).</p>

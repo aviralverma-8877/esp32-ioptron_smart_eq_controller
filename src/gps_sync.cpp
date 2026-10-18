@@ -176,6 +176,12 @@ static volatile bool manualReq = false;
 
 void gpsSyncRequestManual() { manualReq = true; }
 
+void gpsSyncFactoryReset() {
+  Preferences p;
+  if (p.begin("smarteq", false)) { p.clear(); p.end(); }
+  tzSetting = TZ_AUTO;
+}
+
 void gpsSyncBegin() {
   Preferences p;
   if (p.begin("smarteq", true)) { tzSetting = p.getInt("tz", TZ_AUTO); p.end(); }

@@ -62,6 +62,9 @@ static void debugConsole() {
     if (!n) continue;
     line[n] = 0; n = 0;
     if (!strcmp(line, ".")) { stateLog = !stateLog; continue; }
+    if (!strcmp(line, "pair"))   { btPairStart(120000); continue; }
+    if (!strcmp(line, "unpair")) { btPairStop(); continue; }
+    if (!strcmp(line, "accept")) { btConfirmReply(true); continue; }    // = BOOT on the code dialog
     if (line[0] != ':') { LOG("[cons] ':cmd#' -> mount, '.' toggles [state]\n"); continue; }
     if (btConnected) { LOG("[cons] BT client active - not sent\n"); continue; }
     char r[64];
@@ -86,6 +89,7 @@ static void debugState() {
 void loop() {
   gpsFeed();
   gpsSyncTick();
+  btTick();
 
   if (btConnected) {
     btBridgeTick();                       // transparent, both directions

@@ -59,7 +59,7 @@ static const uint32_t SLEW_MAX_MS = 240000UL, ALT_OBJ_MS = 5000, ALT_LIST_MS = 2
 static const uint32_t STOP_IGNORE_MS = 800;     // drop the events of the press that stopped a slew
 static uint32_t ignoreUntil = 0;
 
-enum Screen { SC_STATUS, SC_MENU, SC_LIST, SC_OBJECT };
+enum Screen { SC_STATUS, SC_MENU, SC_LIST, SC_OBJECT, SC_BT };
 static Screen scr = SC_STATUS;
 
 // ---- drawing helpers ---------------------------------------------------------
@@ -149,16 +149,17 @@ static void statusEnter() { scr = SC_STATUS; displayStatusEnter(); }
 static void menuEnter();
 
 static void statusEvent(BtnEvent e) {
-  if (e == EV_UP || e == EV_DOWN || e == EV_SEL) {
-    if (skyReady()) menuEnter();
-    else setMsg("no SD catalog", C_WARN, 2500);
-  }
+  if (e == EV_UP || e == EV_DOWN || e == EV_SEL) menuEnter();   // catalog rows need the SD
 }
 
 // ---- MENU ---------------------------------------------------------------------
-static const int MENU_N = 8, MENU_Y = 34, MENU_H = 24;
+static const int MENU_N = 10, MENU_Y = 30, MENU_H = 19;
 static const int MENU_ZERO = 5;                   // "Go to zero position" row
 static const int MENU_TZ = 6;                     // "Time zone" row (edited in place)
+static const int MENU_BT = 7;                     // "Bluetooth" -> pairing screen
+static const int MENU_RESET = 8;                  // "Factory reset" (BOOT twice)
+static bool     resetArmed = false;
+static uint32_t resetArmMs = 0;
 static int menuSel = 0;
 static bool tzEdit = false;                       // TZ row: A/B change, BOOT save, hold BOOT cancel
 static int  tzVal  = TZ_AUTO;
@@ -194,17 +195,43 @@ static void menuRow(int i) {
       else          snprintf(b, sizeof b, "Time zone %s%s", v == TZ_AUTO ? "A " : "", z);
       break;
     }
+    case MENU_BT: snprintf(b, sizeof b, "Bluetooth (%d paired)", btBondCount()); break;
+    case MENU_RESET:
+      if (resetArmed) { snprintf(b, sizeof b, "Reset: BOOT again=ERASE"); fg = C_BAD; }
+      else              snprintf(b, sizeof b, "Factory reset");
+      break;
     default: snprintf(b, sizeof b, "Back"); break;
   }
   tft.fillRect(0, y, SCR_W, MENU_H - 2, bg);
   if (sel) tft.fillRect(0, y, 4, MENU_H - 2, C_HEAD);     // focus bar
-  txt(14, y + 5, b, fg, 2, bg);
+  txt(14, y + 1, b, fg, 2, bg);
 }
 
 static void zeroDisarm() {
   if (!zeroArmed) return;
   zeroArmed = false;
   if (scr == SC_MENU) menuRow(MENU_ZERO);
+}
+
+static void resetDisarm() {
+  if (!resetArmed) return;
+  resetArmed = false;
+  if (scr == SC_MENU) menuRow(MENU_RESET);
+}
+
+// Forget every paired Bluetooth device, wipe our saved settings, reboot.
+// The mount's own settings (site, time zone) are not touched.
+static void factoryReset() {
+  LOG("[ui] factory reset\n");
+  titleBar("Factory reset");
+  txt(14, 60, "Erasing settings and", C_VAL, 2);
+  txt(14, 84, "paired devices...", C_VAL, 2);
+  if (btPairing()) btPairStop();
+  btBondForgetAll();
+  gpsSyncFactoryReset();
+  txt(14, 124, "Restarting", C_WARN, 2);
+  delay(1500);
+  ESP.restart();
 }
 
 static void doGotoZero() {
@@ -248,6 +275,7 @@ static void menuEnter() {
 }
 
 static void listEnter(SkyCat c);
+static void btEnter();
 
 // TZ edit: steps of 15 min between UTC-12 and UTC+14, "Auto" past either end
 static void tzEvent(BtnEvent e) {
@@ -276,6 +304,7 @@ static void tzEvent(BtnEvent e) {
 static void menuEvent(BtnEvent e) {
   if (tzEdit) { tzEvent(e); return; }
   if (zeroArmed && !(e == EV_SEL && menuSel == MENU_ZERO)) zeroDisarm();
+  if (resetArmed && !(e == EV_SEL && menuSel == MENU_RESET)) resetDisarm();
   switch (e) {
     case EV_UP: case EV_UP_REP: case EV_DOWN: case EV_DOWN_REP: {
       int o = menuSel, d = (e == EV_UP || e == EV_UP_REP) ? -1 : 1;
@@ -285,9 +314,12 @@ static void menuEvent(BtnEvent e) {
     }
     case EV_SEL:
       switch (menuSel) {
-        case 0: if (skyCount(CAT_MESSIER) > 0) listEnter(CAT_MESSIER); break;
-        case 1: if (skyCount(CAT_STAR) > 0)    listEnter(CAT_STAR);    break;
-        case 2: if (skyCount(CAT_PLANET) > 0)  listEnter(CAT_PLANET);  break;
+        case 0: case 1: case 2: {
+          SkyCat c = menuSel == 0 ? CAT_MESSIER : menuSel == 1 ? CAT_STAR : CAT_PLANET;
+          if (skyCount(c) > 0) listEnter(c);
+          else setMsg("no SD catalog", C_WARN, 2500);
+          break;
+        }
         case 3: manualSync(); statusEnter(); break;
         case 4:
           if (btConnected) setMsg("BT busy - not stopped", C_WARN, 3000);
@@ -312,6 +344,11 @@ static void menuEvent(BtnEvent e) {
         case MENU_TZ:
           tzEdit = true; tzVal = gpsSyncTzSetting();
           menuRow(MENU_TZ);
+          break;
+        case MENU_BT: btEnter(); break;
+        case MENU_RESET:
+          if (!resetArmed) { resetArmed = true; resetArmMs = millis(); menuRow(MENU_RESET); }
+          else factoryReset();
           break;
         default: statusEnter(); break;
       }
@@ -689,6 +726,136 @@ static void objTick(bool force) {
   if (force || now - drawMs >= 100) objRefresh();
 }
 
+// ---- BLUETOOTH ----------------------------------------------------------------
+// Rows: Pair new device / up to 5 paired devices / Forget all / Back. The device
+// is hidden unless the pairing window is open; leaving the screen closes it.
+static const int BTS_Y = 30, BTS_H = 22, BT_MAXDEV = 5;
+static const uint32_t PAIR_MS = 120000;
+static int  btSel = 0, btDev = 0, btArmed = -1;   // btArmed: row awaiting its 2nd BOOT
+static uint32_t btArmMs = 0, btSerialSeen = 0, btLeftSeen = 0;
+static bool btCfmShown = false, btConnSeen = false;
+
+static int  btRowCount()   { return 1 + btDev + (btDev ? 1 : 0) + 1; }
+static bool btIsDev(int i) { return i >= 1 && i <= btDev; }
+static bool btIsAll(int i) { return btDev && i == btDev + 1; }
+
+static void btRow(int i) {
+  char b[40];
+  uint16_t fg = C_VAL;
+  bool sel = i == btSel;
+  uint16_t bg = sel ? C_SEL : BG;
+  int y = BTS_Y + i * BTS_H;
+  if (i == 0) {
+    if (btPairing()) {
+      snprintf(b, sizeof b, "Pairing... %lus", (unsigned long)((btPairLeftMs() + 999) / 1000));
+      fg = C_WARN;
+    } else snprintf(b, sizeof b, "Pair new device");
+  } else if (btIsDev(i)) {
+    uint8_t mac[6]; char nm[24];
+    if (btArmed == i) { snprintf(b, sizeof b, "Forget? BOOT again"); fg = C_WARN; }
+    else if (btBondGet(i - 1, mac, nm, sizeof nm)) snprintf(b, sizeof b, "%.23s", nm);
+    else b[0] = 0;
+  } else if (btIsAll(i)) {
+    if (btArmed == i) { snprintf(b, sizeof b, "Forget ALL? BOOT again"); fg = C_WARN; }
+    else snprintf(b, sizeof b, "Forget all devices");
+  } else snprintf(b, sizeof b, "Back");
+  tft.fillRect(0, y, SCR_W, BTS_H - 2, bg);
+  if (sel) tft.fillRect(0, y, 4, BTS_H - 2, C_HEAD);
+  txt(14, y + 2, b, fg, 2, bg);
+}
+
+static void btStatusLine() {
+  char b[56], p[56];
+  uint16_t c = C_LBL;
+  if (btConnected)      { snprintf(b, sizeof b, "Connected - bridge active"); c = C_WARN; }
+  else if (btPairing()) { snprintf(b, sizeof b, "Visible as %s - pair from the phone", BT_NAME); c = C_WARN; }
+  else snprintf(b, sizeof b, "Hidden - only paired devices can connect");
+  snprintf(p, sizeof p, "%-52.52s", b);
+  txt(4, 214, p, c, 1);
+  btConnSeen = btConnected;
+}
+
+static void btDrawAll() {
+  titleBar("Bluetooth");
+  int n = btBondCount();
+  btDev = n > BT_MAXDEV ? BT_MAXDEV : n;
+  if (btSel >= btRowCount()) btSel = btRowCount() - 1;
+  btArmed = -1;
+  for (int i = 0; i < btRowCount(); i++) btRow(i);
+  btStatusLine();
+  footHint("A:up  B:down  BOOT:select  hold BOOT:back");
+  btSerialSeen = btBondSerial();
+  btCfmShown = false;
+}
+
+static void btDrawConfirm(uint32_t code) {
+  tft.fillRect(10, 56, 300, 120, C_SEL);
+  tft.drawRect(10, 56, 300, 120, C_HEAD);
+  txt(24, 66, "Pairing request", C_HEAD, 2, C_SEL);
+  char b[12];
+  snprintf(b, sizeof b, "%06lu", (unsigned long)code);
+  txt((SCR_W - 6 * 18) / 2, 96, b, C_VAL, 3, C_SEL);
+  txt(24, 132, "Same code shown on the phone?", C_VAL, 1, C_SEL);
+  txt(24, 150, "BOOT: accept    hold BOOT: reject", C_WARN, 1, C_SEL);
+  btCfmShown = true;
+}
+
+static void btEnter() { scr = SC_BT; btSel = 0; btDrawAll(); }
+
+static void btLeave() {
+  if (btPairing()) btPairStop();
+  menuEnter();
+}
+
+static void btEvent(BtnEvent e) {
+  if (btConfirmPending(nullptr)) {               // only the code dialog listens
+    if (e == EV_SEL) btConfirmReply(true);
+    else if (e == EV_BACK) btConfirmReply(false);
+    return;                                       // btScreenTick redraws
+  }
+  int o = btSel, n = btRowCount();
+  switch (e) {
+    case EV_UP: case EV_UP_REP: case EV_DOWN: case EV_DOWN_REP: {
+      int a = btArmed; btArmed = -1;
+      btSel = (btSel + ((e == EV_UP || e == EV_UP_REP) ? -1 : 1) + n) % n;
+      if (a >= 0 && a != o) btRow(a);
+      btRow(o); btRow(btSel);
+      break;
+    }
+    case EV_SEL:
+      if (btSel == 0) {
+        if (btPairing()) btPairStop(); else btPairStart(PAIR_MS);
+        btRow(0); btStatusLine();
+      } else if (btIsDev(btSel) || btIsAll(btSel)) {
+        if (btArmed != btSel) {                   // first press only arms
+          int a = btArmed; btArmed = btSel; btArmMs = millis();
+          if (a >= 0) btRow(a);
+          btRow(btSel);
+        } else {                                  // bond serial bump -> full redraw
+          btArmed = -1;
+          if (btIsDev(btSel)) btBondForget(btSel - 1); else btBondForgetAll();
+          setMsg("Bluetooth device forgotten", C_OK, 3000);
+        }
+      } else btLeave();
+      break;
+    case EV_BACK:
+      if (btArmed >= 0) { int a = btArmed; btArmed = -1; btRow(a); }
+      else btLeave();
+      break;
+    default: break;
+  }
+}
+
+static void btScreenTick() {
+  uint32_t code;
+  if (btConfirmPending(&code)) { if (!btCfmShown) btDrawConfirm(code); return; }
+  if (btCfmShown || btBondSerial() != btSerialSeen) { btDrawAll(); return; }
+  if (btArmed >= 0 && millis() - btArmMs > CONFIRM_MS) { int a = btArmed; btArmed = -1; btRow(a); }
+  uint32_t left = (btPairLeftMs() + 999) / 1000;
+  if (left != btLeftSeen) { btLeftSeen = left; btRow(0); btStatusLine(); }
+  if (btConnected != btConnSeen) btStatusLine();
+}
+
 // ---- entry points ---------------------------------------------------------------
 void uiBegin() {
   tft.setTextWrap(false);
@@ -708,8 +875,9 @@ void uiTick() {
     } else zeroTick();
   }
   if (zeroArmed && millis() - zeroArmMs > CONFIRM_MS) zeroDisarm();
+  if (resetArmed && millis() - resetArmMs > CONFIRM_MS) resetDisarm();
 
-  if (scr != SC_STATUS && !skyReady() && !(scr == SC_OBJECT && bs == BS_SLEW)) {
+  if ((scr == SC_LIST || scr == SC_OBJECT) && !skyReady() && !(scr == SC_OBJECT && bs == BS_SLEW)) {
     setMsg("SD card removed", C_WARN, 4000);
     statusEnter();
     return;
@@ -730,6 +898,10 @@ void uiTick() {
     case SC_OBJECT:
       if (e != EV_NONE) objEvent(e);
       if (scr == SC_OBJECT) objTick(e != EV_NONE);
+      break;
+    case SC_BT:
+      if (e != EV_NONE) btEvent(e);
+      if (scr == SC_BT) btScreenTick();
       break;
   }
 }
