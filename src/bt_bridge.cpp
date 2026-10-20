@@ -29,6 +29,8 @@ static esp_bd_addr_t     authBda;
 static char              authName[ESP_BT_GAP_MAX_BDNAME_LEN + 1];
 static volatile uint32_t clientHandle = 0;
 static volatile uint32_t bondSerial = 0;
+static bool              codeAccepted = false;  // main task: BOOT accepted the code of...
+static esp_bd_addr_t     acceptedBda;           // ...this peer; its auth success = new pairing
 static volatile bool     openPending = false;   // SRV_OPEN seen, bond check due in btTick()
 static volatile uint32_t openHandle = 0;
 static esp_bd_addr_t     openBda;
@@ -175,17 +177,27 @@ void btTick() {
   }
   if (authDone) {
     authDone = false;
+    // A new pairing is an auth that completes after the user accepted its code.
+    // Any other successful auth used a stored link key: Android does one of those
+    // right before it starts the real pairing, so it must not close the window.
+    bool viaCode = codeAccepted && !memcmp(acceptedBda, authBda, ESP_BD_ADDR_LEN);
+    char k[13]; macKey(authBda, k);
     if (authOk) {
-      char k[13]; macKey(authBda, k);
       Preferences p;
       if (p.begin("btnames", false)) { p.putString(k, authName[0] ? authName : ""); p.end(); }
-      LOG("[bt] paired '%s' (%s)\n", authName, k);
-      char m[40]; snprintf(m, sizeof m, "Paired: %.24s", authName[0] ? authName : k);
-      setMsg(m, C_OK, 4000);
-      if (pairOpen) btPairStop();   // one device per window
-    } else if (pairOpen) {
-      LOG("[bt] pairing failed\n");
-      setMsg("Pairing failed", C_BAD, 4000);
+      if (viaCode) {
+        codeAccepted = false;
+        LOG("[bt] paired '%s' (%s)\n", authName, k);
+        char m[40]; snprintf(m, sizeof m, "Paired: %.24s", authName[0] ? authName : k);
+        setMsg(m, C_OK, 4000);
+        if (pairOpen) btPairStop(); // one device per window
+      } else LOG("[bt] authenticated '%s' (%s) with a stored key\n", authName, k);
+    } else {
+      if (viaCode) codeAccepted = false;
+      if (pairOpen) {
+        LOG("[bt] pairing failed\n");
+        setMsg("Pairing failed - try again", C_BAD, 4000);
+      }
     }
     bondSerial++;
   }
@@ -221,6 +233,7 @@ void btWrite(const uint8_t *buf, size_t n) {
 
 void btPairStart(uint32_t ms) {
   pairUntil = millis() + ms;
+  codeAccepted = false;
   pairOpen = true;
   setDiscoverable(true);
   LOG("[bt] pairing window open %lus\n", (unsigned long)(ms / 1000));
@@ -243,6 +256,7 @@ bool btConfirmPending(uint32_t *code) {
 
 void btConfirmReply(bool accept) {
   if (!cfmPending) return;
+  if (accept) { memcpy(acceptedBda, cfmBda, ESP_BD_ADDR_LEN); codeAccepted = true; }   // before the reply
   esp_bt_gap_ssp_confirm_reply(cfmBda, accept);
   cfmPending = false;
   LOG("[bt] code %06lu %s\n", (unsigned long)cfmCode, accept ? "accepted" : "rejected");

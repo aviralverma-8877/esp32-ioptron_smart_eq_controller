@@ -1,6 +1,6 @@
 {
   "name": "ESP32 iOptron SmartEQ Controller",
-  "version": "2026.10.20-1755",
+  "version": "2026.10.20-1804",
   "home_assistant_domain": "",
   "new_install_prompt_erase": true,
   "builds": [

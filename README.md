@@ -196,6 +196,13 @@ or an *Erase device* flash).
 The Bluetooth screen lists up to five paired devices; select one twice to forget
 it, or use *Forget all devices*.
 
+**Pairing fails?** Remove "SmartEQ-RJ9" on the phone / PC **and** forget the
+phone / PC on the controller (Bluetooth screen, select it twice), then pair again.
+Stay on the Bluetooth screen until the phone shows the pairing as done -
+leaving it closes the pairing window. (Android re-checks an old key before it
+pairs; firmware before 2026-10-20 closed the window on that check and every
+Android pairing then failed.)
+
 **Upgrading from firmware without pairing control:** the old bond is gone on the
 controller side — remove "SmartEQ-RJ9" from the host's Bluetooth devices first,
 then pair again as above. If a host still lists it as paired but can't connect
@@ -254,6 +261,10 @@ through a serial port* → serial port = the **Outgoing** Bluetooth COM port,
 device model *Meade LX200 (compatible)* (Protocol **LX200**) or *Celestron
 NexStar (compatible)* (Protocol **NexStar**), coordinate system **JNow**.
 Ctrl+1 GoTo · Ctrl+3 sync (LX200 only; Stellarium's NexStar driver has no sync) · Ctrl+5 abort.
+
+**Stellarium Mobile (Android):** tested with Protocol **NexStar** - pair the
+phone, pick a Celestron NexStar telescope over Bluetooth → *SmartEQ-RJ9*. GoTo,
+the direction buttons and stop all work.
 
 **SkySafari (Android):** Settings → Telescope → Setup → scope type as in the
 table, mount type *Equatorial GoTo (German)*, connect via Bluetooth to
