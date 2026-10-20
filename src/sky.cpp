@@ -293,11 +293,8 @@ bool skySunSep(const SkyObj *o, double &sepDeg) {
   return true;
 }
 
-bool skyAltAz(const SkyObj *o, double &altDeg, double &azDeg) {
-  double jd, lat, lon;
-  if (!o || !skyNowJD(jd) || !skySite(lat, lon)) return false;
-  double ra, dec;
-  if (!skyObjNow(o, jd, ra, dec)) return false;
+static void eqToHorizon(double jd, double lat, double lon, double ra, double dec,
+                        double &altDeg, double &azDeg) {
   double D = jd - 2451545.0, T = D / 36525.0;
   double gmst = 280.46061837 + 360.98564736629 * D + 0.000387933 * T * T - T * T * T / 38710000.0;
   double ha = fmod(gmst + lon - ra * 15.0, 360.0);
@@ -311,5 +308,18 @@ bool skyAltAz(const SkyObj *o, double &altDeg, double &azDeg) {
   if (az < 0) az += 360.0;
   if (az >= 360.0) az -= 360.0;
   azDeg = az;
+}
+
+bool skyAltAz(const SkyObj *o, double &altDeg, double &azDeg) {
+  double jd, lat, lon, ra, dec;
+  if (!o || !skyNowJD(jd) || !skySite(lat, lon) || !skyObjNow(o, jd, ra, dec)) return false;
+  eqToHorizon(jd, lat, lon, ra, dec, altDeg, azDeg);
+  return true;
+}
+
+bool skyRaDecToAltAz(double raH, double decD, double &altDeg, double &azDeg) {
+  double jd, lat, lon;
+  if (!skyNowJD(jd) || !skySite(lat, lon)) return false;
+  eqToHorizon(jd, lat, lon, raH, decD, altDeg, azDeg);
   return true;
 }

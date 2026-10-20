@@ -8,6 +8,7 @@
 #include "gps_sync.h"
 #include "message.h"
 #include "sky.h"
+#include "xlate.h"
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
@@ -24,7 +25,7 @@ static Row rows[] = {
   { 136, 2, "Stat",  "" }, { 158, 1, "Trk",   "" }, { 170, 1, "Pos", "" },
 };
 enum { R_MODEL, R_FW, R_TIME, R_DATE, R_ZONE, R_SITE, R_STAT, R_TRK, R_POS };
-static char hdrCache[32] = "", gpsCache[40] = "", fixCache[40] = "", ftrCache[40] = "";
+static char hdrCache[48] = "", gpsCache[40] = "", fixCache[40] = "", ftrCache[40] = "";
 
 static void txt(int x, int y, const char *s, uint16_t fg, uint8_t sz, uint16_t bg = BG) {
   tft.setTextSize(sz); tft.setTextColor(fg, bg); tft.setCursor(x, y); tft.print(s);
@@ -50,9 +51,12 @@ static void row(int i, const char *val, uint16_t color) {
 }
 
 static void header() {
-  const char *st = btConnected ? "BRIDGE" : (linkUp ? "MOUNT OK" : "NO MOUNT");
+  const char *st0 = btConnected ? "BRIDGE" : (linkUp ? "MOUNT OK" : "NO MOUNT");
+  char st[24];
+  if (xlateMode() == XL_NATIVE) snprintf(st, sizeof st, "%s", st0);
+  else snprintf(st, sizeof st, "%s  %s", st0, xlateModeName(xlateMode()));   // BT client protocol
   bool sd = skyReady();
-  char h[32];
+  char h[48];
   snprintf(h, sizeof h, "%s|%s|%d", BT_NAME, st, sd);
   if (strcmp(h, hdrCache)) {
     strncpy(hdrCache, h, sizeof hdrCache - 1);

@@ -3,3 +3,4 @@
 build/
 tools/sdcard/.venv/
 __pycache__/
+tools/xlate-test/xlate_test

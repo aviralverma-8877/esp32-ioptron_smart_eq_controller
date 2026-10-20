@@ -3,7 +3,8 @@
 //   STATUS  (existing status page, display.cpp)  --A or B-->  MENU   (only when skyReady())
 //   MENU    Messier / Stars / Planets / Sync GPS now / Stop mount / Go to zero /
 //           Time zone (BOOT: edit, A/B: +-15 min or Auto, BOOT: save, hold: cancel) /
-//           Bluetooth (pair new device for 2 min, list / forget paired devices) /
+//           Bluetooth (pair new device for 2 min, client protocol iOptron / LX200 /
+//           NexStar, list / forget paired devices) /
 //           Factory reset (BOOT twice: forget BT devices, clear settings, reboot)
 //   LIST    scrolling object list with live altitude
 //   OBJECT  left box: thumbnail + name;  right box: info text + [ TRACK ] button

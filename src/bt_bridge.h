@@ -1,4 +1,5 @@
-// bt_bridge.h - Classic Bluetooth SPP endpoint and the transparent byte bridge.
+// bt_bridge.h - Classic Bluetooth SPP endpoint and the byte bridge: transparent
+// (iOptron) or through the LX200 / NexStar translator (xlate.h, proto.h).
 //
 // The device is never discoverable except during a pairing window opened from
 // the UI. Pairing uses SSP numeric comparison, accepted on the controller.
@@ -12,7 +13,8 @@ extern volatile bool btConnected;   // a client is connected -> stay transparent
 
 void btBegin();
 void btTick();                       // every loop: pairing timeout, bond bookkeeping
-void btBridgeTick();                 // when connected: pump both directions
+void btBridgeTick();                 // when connected: pump both directions (or translate, xlate.h)
+void btWrite(const uint8_t *buf, size_t n);   // to the connected client (translator replies)
 
 // ---- pairing window ----
 void     btPairStart(uint32_t ms);   // discoverable + accept new pairings for `ms`

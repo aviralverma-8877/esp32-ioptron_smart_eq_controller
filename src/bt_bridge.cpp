@@ -2,6 +2,7 @@
 #include "config.h"
 #include "mount.h"
 #include "message.h"
+#include "xlate.h"
 #include "BluetoothSerial.h"
 #include "esp_bt_device.h"
 #include "esp_gap_bt_api.h"
@@ -92,8 +93,9 @@ static void sppEvent(esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
 // Replaces the library's GAP handler (only needed for master-mode discovery).
 static void gapEvent(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param) {
   switch (event) {
-    case ESP_BT_GAP_CFM_REQ_EVT:                 // numeric comparison
-      if (pairOpen && !cfmPending) {
+    case ESP_BT_GAP_CFM_REQ_EVT: {               // numeric comparison
+      bool ask = pairOpen && !cfmPending;
+      if (ask) {
         memcpy(cfmBda, param->cfm_req.bda, ESP_BD_ADDR_LEN);
         cfmCode = param->cfm_req.num_val;
         cfmPending = true;
@@ -101,8 +103,10 @@ static void gapEvent(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param) 
         esp_bt_gap_ssp_confirm_reply(param->cfm_req.bda, false);
       }
       LOG("[bt] gap: confirm request %06lu (%s)\n", (unsigned long)param->cfm_req.num_val,
-          pairOpen ? "asking user" : "REJECTED - pairing window closed");
+          ask ? "asking user" : pairOpen ? "REJECTED - another code pending"
+                                         : "REJECTED - pairing window closed");
       break;
+    }
     case ESP_BT_GAP_KEY_REQ_EVT:                 // we have no keypad
       esp_bt_gap_ssp_passkey_reply(param->key_req.bda, false, 0);
       LOG("[bt] gap: passkey request rejected\n");
@@ -125,6 +129,10 @@ static void gapEvent(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param) 
       strncpy(authName, (const char *)param->auth_cmpl.device_name, sizeof authName - 1);
       authName[sizeof authName - 1] = 0;
       authOk = param->auth_cmpl.stat == ESP_BT_STATUS_SUCCESS;
+      // the attempt is over (accepted, rejected, or timed out on the host): a
+      // code still waiting for BOOT is stale - drop it, or every retry in this
+      // window is refused and BOOT would accept the old code
+      if (cfmPending && !memcmp(cfmBda, param->auth_cmpl.bda, ESP_BD_ADDR_LEN)) cfmPending = false;
       authDone = true;
       LOG("[bt] gap: auth complete '%s' status %d\n", authName, (int)param->auth_cmpl.stat);
       break;
@@ -155,8 +163,10 @@ void btTick() {
       if (b < 0) logMac("bond lookup failed, accepting", openBda);
       clientHandle = openHandle;
       mountDrainRx();               // start the session clean
+      xlateReset();
       btConnected = true;
       logMac("connected", openBda);
+      LOG("[bt] client protocol: %s\n", xlateModeName(xlateMode()));
     }
   }
   if (pairOpen && (int32_t)(millis() - pairUntil) >= 0) {
@@ -182,8 +192,31 @@ void btTick() {
 }
 
 void btBridgeTick() {
-  pumpClientToMount(Bt);            // client -> mount
-  pumpMountToClient(Bt);            // mount  -> client
+  if (xlateMode() == XL_NATIVE) {
+    pumpClientToMount(Bt);          // client -> mount
+    pumpMountToClient(Bt);          // mount  -> client
+    return;
+  }
+  // LX200 / NexStar: every client byte goes through the translator, which does
+  // its own request/reply with the mount (bounded by available(): never blocks
+  // on the client)
+  for (int n = Bt.available(); n > 0; n--) {
+    int c = Bt.read();
+    if (c < 0) break;
+    xlateFeed((uint8_t)c);
+  }
+  mountDrainRx();                   // nothing unsolicited may reach a translated client
+  xlateTick();
+  static uint32_t pingMs = 0;       // idle client: keep the mount-link LED honest
+  if (millis() - pingMs > 2000) {
+    pingMs = millis();
+    char r[16];
+    askMount(":GAS#", r, sizeof r, 300);
+  }
+}
+
+void btWrite(const uint8_t *buf, size_t n) {
+  if (btConnected) Bt.write(buf, n);
 }
 
 void btPairStart(uint32_t ms) {

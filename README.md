@@ -5,9 +5,13 @@ Go2Nova / SmartEQ-class mount into a wireless target:
 
 * **Classic Bluetooth "serial port" (SPP)** ⇄ **RS-232 / RJ9** — every byte is
   forwarded unmodified, both directions, so a phone / PC / planetarium app
-  (Stellarium, iOptron Commander, ASCOM, INDI, SkySafari …) drives the mount
-  over Bluetooth. The device stays **hidden**; it is only discoverable during a
-  2-minute pairing window opened from the menu, and only paired devices may connect.
+  (iOptron Commander, ASCOM …) drives the mount over Bluetooth. The device
+  stays **hidden**; it is only discoverable during a 2-minute pairing window
+  opened from the menu, and only paired devices may connect.
+* **Optional LX200 / NexStar translation** — switch the Bluetooth side to
+  **Meade LX200** or **Celestron NexStar** and apps with those drivers built in
+  (Stellarium, SkySafari, INDI/KStars …) connect directly, no ASCOM or
+  Commander needed. See [Protocol translation](#protocol-translation-lx200--nexstar).
 * **Status TFT** — shows what the mount reports about itself: model, firmware,
   time, UTC offset / DST, site lon/lat, RA/Dec, tracking & guide rates, status.
 * **Automatic GPS time + site sync** — an on-board NEO-6M feeds date/time and
@@ -32,7 +36,7 @@ Stellarium → ASCOM → iOptron Commander → Bluetooth GoTo + tracking verifie
 | State | Bridge | Poll / GPS sync | TFT header |
 |---|---|---|---|
 | **No BT client** | idle | polls the mount every ~0.4 s; auto-syncs from GPS when a fix is stable for 6 s, then every 3 h | `MOUNT OK` / `NO MOUNT` |
-| **BT client connected** | fully transparent | **stopped** — screen holds last values, GPS sync deferred until disconnect | `BRIDGE` |
+| **BT client connected** | fully transparent (Protocol iOptron) or translated (LX200 / NexStar) | **stopped** — screen holds last values, GPS sync deferred until disconnect | `BRIDGE` (+ `LX200` / `NexStar`) |
 
 The GPS sync first writes the **time zone** (`:SG`, from the *Time zone* menu
 setting — *Auto* derives it from the GPS position) with **DST off** (`:SDS0`),
@@ -118,7 +122,7 @@ catalog rows need one):
 | Stop mount | `:q#` |
 | Go to zero position | `:MH#` — select twice to confirm |
 | Time zone | BOOT to edit, A/B = ±15 min or **Auto** (from GPS position), BOOT saves (NVS) and re-syncs, hold BOOT cancels |
-| Bluetooth (N paired) | pair a new device, list / forget paired devices — see [Pairing](#pairing) |
+| Bluetooth (N paired) | pair a new device, **Protocol** (iOptron / LX200 / NexStar), list / forget paired devices — see [Pairing](#pairing) |
 | Factory reset | select twice: forgets all paired Bluetooth devices, clears saved settings, reboots (the mount's own settings are untouched) |
 
 **Object page** — left: thumbnail + name; right: object info with a suggested
@@ -132,7 +136,7 @@ Moon with topocentric parallax), then
 button while slewing = **STOP** (`:q#`). Leaving the page and coming back to the
 object the mount is tracking shows **TRACKING** again (falls back to TRACK if
 tracking is stopped elsewhere). GoTo is disabled while a Bluetooth client is
-connected (the bridge stays transparent).
+connected (the app owns the mount then).
 
 **Rebuild the card content** (Python 3.10+):
 
@@ -204,7 +208,7 @@ devices → More Bluetooth settings → COM Ports*). The **Incoming** port block
 forever when opened — pointing iOptron Commander at it makes Commander hang on
 start; you can remove the incoming port there.
 
-### Stellarium (Windows, via ASCOM)
+### Stellarium (Windows, via ASCOM - Protocol iOptron)
 
 Chain: Stellarium → ASCOM *iOptron CEM60, iEQ45Pro/30Pro, CEM25, SmartEQ Pro+…*
 driver (`ASCOM.iOptron2014.Telescope`) → iOptron Commander 2014 → Bluetooth COM
@@ -229,11 +233,66 @@ Tips:
   Bluetooth connection took longer than its probe — just press OK / Connect again.
 - Quitting Stellarium can send the mount to its zero position (`:MH#`).
 
+## Protocol translation (LX200 / NexStar)
+
+The mount speaks the iOptron command language, which Stellarium, SkySafari and
+most other apps don't have a built-in driver for. The controller can translate:
+set **Menu → Bluetooth → Protocol** (BOOT cycles it; saved, survives reboots):
+
+| Protocol | Bluetooth client speaks | Use with |
+|---|---|---|
+| **iOptron** (default) | iOptron, byte-transparent | iOptron Commander, ASCOM iOptron driver |
+| **LX200** | Meade LX200 / Autostar | Stellarium *Meade LX200 (compatible)*, SkySafari *Meade LX-200 Classic*, INDI *LX200 Basic*, ASCOM *Meade Generic* |
+| **NexStar** | Celestron NexStar hand control | Stellarium *Celestron NexStar (compatible)*, SkySafari *Celestron NexStar/Advanced GT*, INDI *Celestron NexStar* |
+
+The status header shows the active protocol (`MOUNT OK  LX200`). The
+on-device menu, catalog, GPS sync and TRACK work the same in every mode.
+
+**Stellarium, direct (Windows / Linux / macOS):** pair (above), then Telescope
+Control (Ctrl+0) → *Add* → *Telescope controlled by: Stellarium, directly
+through a serial port* → serial port = the **Outgoing** Bluetooth COM port,
+device model *Meade LX200 (compatible)* (Protocol **LX200**) or *Celestron
+NexStar (compatible)* (Protocol **NexStar**), coordinate system **JNow**.
+Ctrl+1 GoTo · Ctrl+3 sync (LX200 only; Stellarium's NexStar driver has no sync) · Ctrl+5 abort.
+
+**SkySafari (Android):** Settings → Telescope → Setup → scope type as in the
+table, mount type *Equatorial GoTo (German)*, connect via Bluetooth to
+*SmartEQ-RJ9*. (iPhones can't use Classic Bluetooth serial ports.)
+
+What is translated:
+
+| | LX200 | NexStar | iOptron sent to the mount |
+|---|---|---|---|
+| position | `:GR#` `:GD#` (`:U#` / `:P#` precision), `:GA#` `:GZ#` | `E` `e`, `Z` `z` | `:GEC#` (reused for 250 ms) |
+| GoTo | `:Sr` `:Sd` `:MS#` → `0` / `1…#` below horizon / `2…#` error | `R` `r` | `:ST1#` `:Sr` `:Sd` `:MS#` |
+| sync | `:CM#` | `S` `s` | `:Sr` `:Sd` `:CM#` |
+| stop | `:Q#` | `M` | `:q#` |
+| slewing? | `:D#` | `L` | `:GAS#` |
+| manual move | `:Mn/s/e/w#`, `:Qn/s/e/w#`, `:RG/RC/RM/RS#` (2×, 16×, 128×, max), `:R0#`–`:R9#` | `P` fixed / variable-rate axis moves | `:SRn#`, `:mn/ms/me/mw#`, `:qR#` `:qD#` |
+| tracking | `:Te#` `:Td#`, `:TQ/TL/TS#`, `:GW#` | `t` `T` | `:ST1#` `:ST0#`, `:RT0/1/2#` |
+| park | `:hP#` | — | `:MH#` (zero position) |
+| info | `ACK`→`P`, `:GVP/GVN/GVD/GVT#`, `:Gc#`, `:GT#` | `V` (4.21), `m` (20, AVX), `J`, `K` | — |
+| time / site read | `:GL# :Ga# :GC# :GG# :Gt# :Gg#` | `h` `w` | — (from GPS / last mount poll) |
+| time / site set | `:SC :SL :SG :St :Sg …` → acknowledged, **not applied** | `H` `W` → `#`, not applied | — |
+
+Notes:
+
+- Time and site **set** commands are acknowledged but ignored: the GPS sync owns
+  them (a wrong site silently breaks every GoTo, and re-writing the clock while
+  tracking upsets the mount).
+- After a GoTo, the controller watches the slew and turns tracking back on if
+  the mount ends it stopped, so Stellarium GoTos work right after *Go to zero position*.
+- NexStar Alt-Az GoTo (`B`/`b`) isn't supported. If the arrow buttons in an app
+  move the wrong way East/West, use the app's reverse-direction setting.
+- The translator logic has a host test with a mock mount:
+  `sh tools/xlate-test/run.sh` (g++; on Windows run it in WSL).
+
 ### Debug console (USB, 115200 baud)
 
 `:cmd#` lines are sent to the mount and the reply is printed (idle only);
 `.` toggles the `[state]` lines; `pair` / `unpair` open / close the pairing
-window; `accept` accepts a pending pairing code (same as BOOT).
+window; `accept` accepts a pending pairing code (same as BOOT);
+`proto` shows and `proto ioptron|lx200|nexstar` sets the Bluetooth client protocol.
 
 ## iOptron replies decoded (SmartEQ Pro, protocol V1.00)
 
@@ -267,7 +326,9 @@ GoTo (verified against iOptron Commander on this mount): `:ST1#` tracking on,
 | `src/config.h` | build-time config (pins/bauds), `LOG` macro, TFT colours |
 | `src/message.*` | transient footer status line (`setMsg`) |
 | `src/mount.*` | RS-232 link: `askMount`, iOptron reply decoders, idle poll loop, link tracking |
-| `src/bt_bridge.*` | SPP endpoint + transparent byte pumping; hidden/pairing window, numeric-comparison pairing, bond list (NVS), paired-only connections |
+| `src/bt_bridge.*` | SPP endpoint + transparent byte pumping (or the translator); hidden/pairing window, numeric-comparison pairing, bond list (NVS), paired-only connections |
+| `src/xlate.*` | LX200 / NexStar ⇄ iOptron translator (pure C++, host-tested in `tools/xlate-test/`) |
+| `src/proto.*` | translator glue: mount / GPS / site / Bluetooth hooks, protocol setting (NVS) |
 | `src/gps.*` | NEO-6M UART + TinyGPS++ + lock / status |
 | `src/gps_sync.*` | automatic + manual (menu) GPS→mount time-zone/time/site sync, time-zone setting (NVS) |
 | `src/display.*` | ST7789 + status page (changed-field redraw) |
@@ -284,6 +345,9 @@ GoTo (verified against iOptron Commander on this mount): `:ST1#` tracking on,
 
 - Stateless bridge, no flow control (RTS/CTS/DTR not wired on this board).
 - `pump()` is bounded by `available()`, so `loop()` never blocks on the bridge.
+  In LX200 / NexStar mode each client command blocks for its mount round trip
+  (~50–120 ms at 9600 baud; GoTo ~1 s); an idle client gets a `:GAS#` keepalive
+  every 2 s so LED2 keeps showing the mount link.
 - Buttons are sampled by a 10 ms `esp_timer` into a queue, so a poll-blocked `loop()` can't miss a press (no GPIO36/39 interrupts - ESP32 erratum).
 - TFT redraws only changed fields — no flicker.
 - `huge_app.csv` partition (3 MB app, no OTA) — Bluedroid SPP is large.

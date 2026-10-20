@@ -60,3 +60,5 @@ bool skySunSep(const SkyObj *o, double &sepDeg);
 // Altitude/azimuth (degrees, az from N through E) of an object right now.
 // False if time or site is unknown.
 bool skyAltAz(const SkyObj *o, double &altDeg, double &azDeg);
+// Same for a JNow RA (hours) / Dec (degrees), e.g. the mount's own position.
+bool skyRaDecToAltAz(double raH, double decD, double &altDeg, double &azDeg);

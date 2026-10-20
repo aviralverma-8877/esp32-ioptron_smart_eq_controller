@@ -59,8 +59,8 @@
 <body>
 <main>
   <h1>ESP32 iOptron SmartEQ Controller</h1>
-  <p class="sub">Bluetooth ⇄ RS-232 bridge · status TFT · automatic GPS time &amp; site sync ·
-     SD-card sky catalog with GoTo &amp; tracking</p>
+  <p class="sub">Bluetooth ⇄ RS-232 bridge · LX200 / NexStar translation · status TFT ·
+     automatic GPS time &amp; site sync · SD-card sky catalog with GoTo &amp; tracking</p>
 
   <div class="card flash">
     <esp-web-install-button manifest="./manifest.json">
@@ -106,7 +106,39 @@
        Windows creates two COM ports per pairing: use the <b>Outgoing</b> one
        (<i>Settings → Bluetooth &amp; devices → More Bluetooth settings → COM Ports</i>).
        The Incoming port hangs any program that opens it.</p>
-    <h2>Stellarium on Windows</h2>
+    <h2>Protocol — LX200 / NexStar translation</h2>
+    <p>The mount speaks the iOptron command language, which most apps have no built-in driver
+       for. The controller can translate: <b>Menu → Bluetooth → Protocol</b> (BOOT cycles it;
+       the setting is saved).</p>
+    <table>
+      <tr><th>Protocol</th><th>Use with</th></tr>
+      <tr><td><b>iOptron</b> (default)</td><td>byte-transparent — iOptron Commander, ASCOM iOptron driver</td></tr>
+      <tr><td><b>LX200</b></td><td>Stellarium <i>Meade LX200 (compatible)</i>, SkySafari <i>Meade LX-200 Classic</i>,
+          INDI <i>LX200 Basic</i>, ASCOM <i>Meade Generic</i></td></tr>
+      <tr><td><b>NexStar</b></td><td>Stellarium <i>Celestron NexStar (compatible)</i>, SkySafari
+          <i>Celestron NexStar / Advanced GT</i>, INDI <i>Celestron NexStar</i></td></tr>
+    </table>
+    <p class="muted">Translated: position, GoTo, sync, stop, slewing status, manual moves and rates,
+       tracking on/off, park (→ zero position), time/site read-back. Time and site <i>set</i>
+       commands from the app are acknowledged but not applied — the GPS sync owns them. After every
+       GoTo the controller makes sure the mount is tracking. The status header shows the active
+       protocol (e.g. <code>MOUNT OK  LX200</code>).</p>
+
+    <h2>Stellarium — direct (recommended)</h2>
+    <ol>
+      <li>On the controller set <b>Protocol: LX200</b>.</li>
+      <li>Stellarium → <b>Telescope Control</b> (Ctrl+0) → add → <i>Stellarium, directly through
+          a serial port</i>.</li>
+      <li>Serial port: the <b>Outgoing</b> Bluetooth COM port · device model
+          <b>Meade LX200 (compatible)</b> · coordinate system <b>JNow</b>.</li>
+      <li>Select an object and press <b>Ctrl+1</b> to slew (Ctrl+3 sync, Ctrl+5 abort).</li>
+    </ol>
+    <p class="muted">Protocol <b>NexStar</b> with <i>Celestron NexStar (compatible)</i> works the same
+       way (no sync in Stellarium's NexStar driver). SkySafari on <b>Android</b>: Settings →
+       Telescope → Setup, scope type as in the table, mount <i>Equatorial GoTo (German)</i>,
+       connect via Bluetooth. iPhones can't use Classic Bluetooth serial ports.</p>
+
+    <h2>Stellarium via ASCOM (Protocol: iOptron)</h2>
     <ol>
       <li>Install the <a href="https://www.ascom-standards.org/">ASCOM Platform</a> and
           <b>iOptron Commander 2014</b> (driver “iOptron CEM60, iEQ45Pro/30Pro, CEM25,
@@ -116,10 +148,11 @@
           driver, equinox <b>JNow</b>, <i>connect at startup</i>.</li>
       <li>Select an object and press <b>Ctrl+1</b> to slew (Ctrl+3 sync, Ctrl+5 abort).</li>
     </ol>
-    <p class="muted">If the controller restarts while connected, close Stellarium <b>and</b>
-       iOptron Commander and start Stellarium again (Windows doesn't reopen the Bluetooth link
-       on its own). After <i>Go to zero position</i> the mount stops tracking and a Stellarium
-       GoTo won't restart it: abort, then turn tracking on in Commander.</p>
+    <p class="muted">If the controller restarts while connected, close Stellarium (and
+       iOptron Commander) and start Stellarium again — Windows doesn't reopen the Bluetooth link
+       on its own. In this mode, after <i>Go to zero position</i> the mount stops tracking and a
+       Stellarium GoTo won't restart it: abort, then turn tracking on in Commander (the LX200 /
+       NexStar modes handle this automatically).</p>
   </div>
 
   <h2 id="sdcard">SD card — sky catalog &amp; GoTo</h2>
@@ -161,7 +194,7 @@
        from the Sun. GoTo is disabled while a Bluetooth app is connected.
        The menu also has <b>Sync GPS now</b>, <b>Stop mount</b>, <b>Go to zero position</b>
        (select twice to confirm), <b>Time zone</b> (Auto from GPS, or A/B in 15-minute steps),
-       <b>Bluetooth</b> (pair / forget devices) and <b>Factory reset</b> (select twice: forgets
+       <b>Bluetooth</b> (pair / forget devices, client protocol) and <b>Factory reset</b> (select twice: forgets
        paired devices and settings, then reboots). Don't hold BOOT while powering on or resetting.</p>
     <p class="muted">Credits: catalog from OpenNGC (CC-BY-SA-4.0) and SIMBAD/CDS; deep-sky images
        from DSS2 (STScI) via CDS hips2fits; planet images NASA/JPL/ESA (public domain), Moon by

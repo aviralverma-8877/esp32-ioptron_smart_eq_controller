@@ -45,6 +45,7 @@
 #include "gps_sync.h"
 #include "message.h"
 #include "bt_bridge.h"
+#include "proto.h"
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
@@ -727,17 +728,20 @@ static void objTick(bool force) {
 }
 
 // ---- BLUETOOTH ----------------------------------------------------------------
-// Rows: Pair new device / up to 5 paired devices / Forget all / Back. The device
-// is hidden unless the pairing window is open; leaving the screen closes it.
-static const int BTS_Y = 30, BTS_H = 22, BT_MAXDEV = 5;
+// Rows: Pair new device / Protocol / up to 5 paired devices / Forget all / Back.
+// The device is hidden unless the pairing window is open; leaving the screen
+// closes it. Protocol (BOOT cycles iOptron -> LX200 -> NexStar) is what a
+// Bluetooth client speaks: iOptron = transparent, else translated (xlate.h).
+static const int BTS_Y = 30, BTS_H = 20, BT_MAXDEV = 5;
 static const uint32_t PAIR_MS = 120000;
 static int  btSel = 0, btDev = 0, btArmed = -1;   // btArmed: row awaiting its 2nd BOOT
 static uint32_t btArmMs = 0, btSerialSeen = 0, btLeftSeen = 0;
 static bool btCfmShown = false, btConnSeen = false;
 
-static int  btRowCount()   { return 1 + btDev + (btDev ? 1 : 0) + 1; }
-static bool btIsDev(int i) { return i >= 1 && i <= btDev; }
-static bool btIsAll(int i) { return btDev && i == btDev + 1; }
+static const int BT_PROTO = 1;                    // row index of "Protocol"
+static int  btRowCount()   { return 2 + btDev + (btDev ? 1 : 0) + 1; }
+static bool btIsDev(int i) { return i >= 2 && i <= btDev + 1; }
+static bool btIsAll(int i) { return btDev && i == btDev + 2; }
 
 static void btRow(int i) {
   char b[40];
@@ -750,10 +754,13 @@ static void btRow(int i) {
       snprintf(b, sizeof b, "Pairing... %lus", (unsigned long)((btPairLeftMs() + 999) / 1000));
       fg = C_WARN;
     } else snprintf(b, sizeof b, "Pair new device");
+  } else if (i == BT_PROTO) {
+    snprintf(b, sizeof b, "Protocol: %s", xlateModeName(xlateMode()));
+    if (xlateMode() != XL_NATIVE) fg = C_HEAD;
   } else if (btIsDev(i)) {
     uint8_t mac[6]; char nm[24];
     if (btArmed == i) { snprintf(b, sizeof b, "Forget? BOOT again"); fg = C_WARN; }
-    else if (btBondGet(i - 1, mac, nm, sizeof nm)) snprintf(b, sizeof b, "%.23s", nm);
+    else if (btBondGet(i - 2, mac, nm, sizeof nm)) snprintf(b, sizeof b, "%.23s", nm);
     else b[0] = 0;
   } else if (btIsAll(i)) {
     if (btArmed == i) { snprintf(b, sizeof b, "Forget ALL? BOOT again"); fg = C_WARN; }
@@ -767,7 +774,8 @@ static void btRow(int i) {
 static void btStatusLine() {
   char b[56], p[56];
   uint16_t c = C_LBL;
-  if (btConnected)      { snprintf(b, sizeof b, "Connected - bridge active"); c = C_WARN; }
+  if (btConnected)      { snprintf(b, sizeof b, "Connected - %s %s", xlateModeName(xlateMode()),
+                                   xlateMode() == XL_NATIVE ? "bridge active" : "translation"); c = C_WARN; }
   else if (btPairing()) { snprintf(b, sizeof b, "Visible as %s - pair from the phone", BT_NAME); c = C_WARN; }
   else snprintf(b, sizeof b, "Hidden - only paired devices can connect");
   snprintf(p, sizeof p, "%-52.52s", b);
@@ -826,6 +834,9 @@ static void btEvent(BtnEvent e) {
       if (btSel == 0) {
         if (btPairing()) btPairStop(); else btPairStart(PAIR_MS);
         btRow(0); btStatusLine();
+      } else if (btSel == BT_PROTO) {
+        protoCycle();
+        btRow(BT_PROTO); btStatusLine();
       } else if (btIsDev(btSel) || btIsAll(btSel)) {
         if (btArmed != btSel) {                   // first press only arms
           int a = btArmed; btArmed = btSel; btArmMs = millis();
@@ -833,7 +844,7 @@ static void btEvent(BtnEvent e) {
           btRow(btSel);
         } else {                                  // bond serial bump -> full redraw
           btArmed = -1;
-          if (btIsDev(btSel)) btBondForget(btSel - 1); else btBondForgetAll();
+          if (btIsDev(btSel)) btBondForget(btSel - 2); else btBondForgetAll();
           setMsg("Bluetooth device forgotten", C_OK, 3000);
         }
       } else btLeave();

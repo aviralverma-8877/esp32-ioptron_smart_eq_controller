@@ -7,7 +7,7 @@
 //   SD card on the LCD module (CS GPIO33, shared VSPI) = sky database + GoTo
 //
 // Modules:  config.h  message  mount  bt_bridge  gps  gps_sync  display
-//           buttons  sky  ui
+//           buttons  sky  ui  xlate (LX200 / NexStar translator) + proto (its glue)
 // ---------------------------------------------------------------------------
 #include <Arduino.h>
 #include "config.h"
@@ -19,6 +19,7 @@
 #include "buttons.h"
 #include "sky.h"
 #include "ui.h"
+#include "proto.h"
 
 void setup() {
   pinMode(ACT_LED_PIN, OUTPUT);   digitalWrite(ACT_LED_PIN, LOW);
@@ -33,6 +34,7 @@ void setup() {
   mountBegin();
   gpsBegin();
   gpsSyncBegin();
+  protoBegin();                   // BT client protocol (iOptron / LX200 / NexStar), NVS
   displayBegin();
   skyBegin();
   buttonsBegin();
@@ -65,7 +67,18 @@ static void debugConsole() {
     if (!strcmp(line, "pair"))   { btPairStart(120000); continue; }
     if (!strcmp(line, "unpair")) { btPairStop(); continue; }
     if (!strcmp(line, "accept")) { btConfirmReply(true); continue; }    // = BOOT on the code dialog
-    if (line[0] != ':') { LOG("[cons] ':cmd#' -> mount, '.' toggles [state]\n"); continue; }
+    if (!strncmp(line, "proto", 5)) {                                  // proto [ioptron|lx200|nexstar]
+      const char *a = line + 5;
+      while (*a == ' ') a++;
+      for (int m = 0; *a && m < XL_COUNT; m++)
+        if (!strcasecmp(a, xlateModeName((XlateMode)m))) protoSetMode((XlateMode)m);
+      LOG("[cons] BT client protocol: %s\n", xlateModeName(xlateMode()));
+      continue;
+    }
+    if (line[0] != ':') {
+      LOG("[cons] ':cmd#' -> mount, '.' toggles [state], proto [ioptron|lx200|nexstar]\n");
+      continue;
+    }
     if (btConnected) { LOG("[cons] BT client active - not sent\n"); continue; }
     char r[64];
     size_t got = askMount(line, r, sizeof r, 1000);
