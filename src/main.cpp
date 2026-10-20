@@ -67,6 +67,11 @@ static void debugConsole() {
     if (!strcmp(line, "pair"))   { btPairStart(120000); continue; }
     if (!strcmp(line, "unpair")) { btPairStop(); continue; }
     if (!strcmp(line, "accept")) { btConfirmReply(true); continue; }    // = BOOT on the code dialog
+    if (!strcmp(line, "trace")) {                                      // log client commands + replies
+      xlateSetTrace(!xlateTrace());
+      LOG("[cons] translator trace %s\n", xlateTrace() ? "ON" : "off");
+      continue;
+    }
     if (!strncmp(line, "proto", 5)) {                                  // proto [ioptron|lx200|nexstar]
       const char *a = line + 5;
       while (*a == ' ') a++;

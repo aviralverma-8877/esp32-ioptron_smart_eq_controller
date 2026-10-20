@@ -153,6 +153,12 @@ void mountQueryGLT() {
   if (askMount(":GLT#", r, sizeof r, 600)) decGLT(r);
 }
 
+void mountQuerySite() {
+  char r[40];
+  if (askMount(":Gg#", r, sizeof r, 400)) decGG(r);
+  if (askMount(":Gt#", r, sizeof r, 400)) decGT(r);
+}
+
 // ---- idle self-poll state machine --------------------------------
 enum PollStep { P_MODEL, P_PROTO, P_FW1, P_FW2, P_GLT, P_GG, P_GT, P_GAS, P_GEC, P_AG, P_COUNT };
 static uint8_t  pollStep    = P_MODEL;

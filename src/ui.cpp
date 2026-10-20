@@ -46,6 +46,7 @@
 #include "message.h"
 #include "bt_bridge.h"
 #include "proto.h"
+#include "xlate.h"
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
@@ -139,9 +140,9 @@ static int wrapDraw(int x, int y, int maxY, const char *s, int cols, uint16_t fg
 }
 
 static void manualSync() {
+  bool held = btConnected && xlateMode() == XL_NATIVE;   // transparent bridge in use
   gpsSyncRequestManual();
-  setMsg(btConnected ? "BT busy - sync deferred" : "GPS sync requested",
-         btConnected ? C_WARN : C_HEAD, 3000);
+  setMsg(held ? "BT busy - sync deferred" : "GPS sync requested", held ? C_WARN : C_HEAD, 3000);
 }
 
 // ---- STATUS -------------------------------------------------------------------

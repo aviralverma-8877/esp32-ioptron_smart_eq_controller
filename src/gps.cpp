@@ -6,6 +6,7 @@ static HardwareSerial GpsSer(1);
 TinyGPSPlus gps;
 
 void gpsBegin() {
+  GpsSer.setRxBufferSize(1024);     // ~1 s of NMEA: survives loop() blocking on mount replies
   GpsSer.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, -1);   // receive only
 }
 

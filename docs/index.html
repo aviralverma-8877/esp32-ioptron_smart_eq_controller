@@ -122,9 +122,11 @@
           <i>Celestron NexStar / Advanced GT</i>, INDI <i>Celestron NexStar</i></td></tr>
     </table>
     <p class="muted">Translated: position, GoTo, sync, stop, slewing status, manual moves and rates,
-       tracking on/off, park (→ zero position), time/site read-back. Time and site <i>set</i>
-       commands from the app are acknowledged but not applied — the GPS sync owns them. After every
-       GoTo the controller makes sure the mount is tracking. The status header shows the active
+       tracking on/off, park (→ zero position), time and site. Time and site sent by the app are
+       written to the mount <b>while the GPS has no fix</b> (indoors, cold start); with a fix the GPS
+       stays in charge. Half-hour zones such as India's +5:30 are kept correct even though NexStar
+       apps send whole hours. While an LX200 / NexStar app is connected the GPS sync still runs.
+       After every GoTo the controller makes sure the mount is tracking. The status header shows the active
        protocol (e.g. <code>MOUNT OK  LX200</code>).</p>
 
     <h2>Stellarium — direct (recommended)</h2>
@@ -139,7 +141,8 @@
     <p class="muted">Protocol <b>NexStar</b> with <i>Celestron NexStar (compatible)</i> works the same
        way (no sync in Stellarium's NexStar driver). <b>Stellarium Mobile</b> on Android: tested
        with Protocol <b>NexStar</b> — pick a Celestron NexStar telescope over Bluetooth →
-       SmartEQ-RJ9 (GoTo, direction buttons and stop work). SkySafari on <b>Android</b>: Settings →
+       SmartEQ-RJ9 (GoTo, direction buttons and stop work; turn on the <i>Time</i> / <i>Location</i>
+       <b>Sync</b> switches to set the mount from the phone — it then shows <i>Time: correct</i>). SkySafari on <b>Android</b>: Settings →
        Telescope → Setup, scope type as in the table, mount <i>Equatorial GoTo (German)</i>,
        connect via Bluetooth. iPhones can't use Classic Bluetooth serial ports.</p>
 

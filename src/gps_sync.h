@@ -1,6 +1,8 @@
 // gps_sync.h - push GPS date/time + site into the mount.
-// Automatic once a fix is stable; the UI can force a manual re-sync. Never runs
-// while a BT client is connected (the bridge must stay transparent).
+// Automatic once a fix is stable (and the mount answers); a failed sync is
+// retried after a minute; the UI can force a manual re-sync. Held while a BT
+// client uses the transparent iOptron bridge; runs between client commands in
+// LX200 / NexStar mode, where the controller owns the line.
 #pragma once
 #include <stdint.h>
 
@@ -21,3 +23,9 @@ int  gpsSyncTzAuto();                // what "auto" resolves to right now
 int  gpsSyncTzEffective();           // offset the next sync will use
 void gpsSyncTzSet(int minutes);      // TZ_AUTO or minutes; saved, re-arms the sync
 void gpsSyncFactoryReset();          // erase the saved settings (NVS "smarteq")
+
+// Raw mount writers, also used for time / site a Bluetooth app sends (proto.cpp).
+// Clock: :SG zone, :SDS0 (DST off), :SC date, :SL local time -> returns # OK of 4.
+// Site: :Sg / :St in arc-seconds; NAN skips that one -> returns # OK.
+int  gpsSyncWriteClock(long utcEpoch, long tzMin);
+int  gpsSyncWriteSite(double latDeg, double lonDeg);

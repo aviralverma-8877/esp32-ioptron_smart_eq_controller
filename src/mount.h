@@ -53,6 +53,7 @@ bool   mountLinkUp();
 
 void   mountDrainRx();
 void   mountQueryGLT();                    // askMount(":GLT#") + decode
+void   mountQuerySite();                   // :Gg# + :Gt# + decode (after a site write)
 
 // transparent bridge helpers (client stream <-> mount UART)
 void   pumpClientToMount(Stream &client);

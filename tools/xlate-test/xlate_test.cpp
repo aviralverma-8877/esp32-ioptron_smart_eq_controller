@@ -36,6 +36,12 @@ static bool mClock(long &utc, long &off) { utc = 1792531800L; off = 330; return 
 static bool mSite(double &lat, double &lon) { lat = 28.6127; lon = 77.2295; return true; }
 static bool mAltAz(double, double, double &alt, double &az) { alt = -12.5; az = 287.25; return true; }
 static void mLog(const char *fmt, ...) { (void)fmt; }
+static long   gotUtc = 0, gotOff = 0;            // last setClock / setSite from the translator
+static double gotLat = 0, gotLon = 0;
+static int    clockCalls = 0, siteCalls = 0;
+static bool   gpsFix = false;                     // true: glue refuses (GPS owns time / site)
+static bool mSetClock(long utc, long off) { clockCalls++; gotUtc = utc; gotOff = off; return !gpsFix; }
+static bool mSetSite(double lat, double lon) { siteCalls++; gotLat = lat; gotLon = lon; return !gpsFix; }
 
 // ---- helpers ------------------------------------------------------------------------
 static int fails = 0, checks = 0;
@@ -131,10 +137,26 @@ static void testLx200() {
   expect(":Gt#", "+28*37#");
   expect(":Gg#", "282*46#");                     // 77.2295 E = 282.7705 W
   expect(":Gc#", "24#");
-  expect(":SC10/21/26#", "1Updating Planetary Data#                              #");
+  // client time: :SG -05.5 (= UTC+5:30), :SL 03:00:00, :SC 10/21/26 -> 2026-10-20 21:30:00Z
+  clockCalls = 0;
+  expect(":SG-05.5#", "1");
   expect(":SL03:00:00#", "1");
-  check(sent.empty(), "time setter is not forwarded");
-  expect(":Sg282*46#", "1");
+  check(clockCalls == 0, "LX200 clock waits for the date");
+  expect(":SC10/21/26#", "1Updating Planetary Data#                              #");
+  check(clockCalls == 1 && gotUtc == 1792531800L && gotOff == 330, "LX200 :SG :SL :SC -> setClock",
+        std::to_string(gotUtc) + " " + std::to_string(gotOff));
+  expect(":SC10/21/26#", "1Updating Planetary Data#                              #");
+  check(clockCalls == 1, "date alone does not re-apply");
+  expect(":SC13/45/26#", "1Updating Planetary Data#                              #");
+  expect(":SL25:00:00#", "0");
+  siteCalls = 0;
+  expect(":St+28*37#", "1");
+  check(siteCalls == 1 && fabs(gotLat - 28.61667) < 1e-4 && std::isnan(gotLon), "LX200 :St -> lat only");
+  expect(":Sg282*46#", "1");                     // west-positive 282d46' = 77d14' E
+  check(siteCalls == 2 && std::isnan(gotLat) && fabs(gotLon - 77.23333) < 1e-4, "LX200 :Sg -> lon east",
+        std::to_string(gotLon));
+  expect(":Sg098*30#", "1");
+  check(fabs(gotLon + 98.5) < 1e-4, "LX200 :Sg west", std::to_string(gotLon));
   expect(":XYZ#", "");                           // unknown: silent
 
   // framing robustness
@@ -159,7 +181,7 @@ static void testNexStar() {
   expect("Kx", "x#");
   expect("V", std::string("\x04\x15#", 3));
   expect("m", std::string("\x14#", 2));
-  expect("J", "1#");
+  expect("J", std::string("\x01#", 2));
   expect("L", "0#");
   gas = "021221#"; nowMs += 1000;
   expect("L", "1#");
@@ -195,16 +217,38 @@ static void testNexStar() {
   expect(std::string("P\x01\x10\xFE\x00\x00\x00\x02", 8), std::string("\x07\x0B#", 3));
 
   // time + site
-  expect("h", std::string("\x03\x00\x00\x0A\x15\x1A\x06\x00#", 9));   // 03:00:00 10/21/26, +5.5 h -> 6
+  // 21:30Z, zone +5:30: W must be whole hours (5), so local is reported as
+  // UTC + 5:00 = 02:30 10/21/26 - apps compute UTC = local - W and get 21:30Z
+  expect("h", std::string("\x02\x1E\x00\x0A\x15\x1A\x05\x00#", 9));
   expect("w", std::string("\x1C\x24\x2E\x00\x4D\x0D\x2E\x00#", 9));   // 28 36 46 N 77 13 46 E
-  expect("H\x01\x02\x03\x04\x05\x06\x07\x08", "#");
-  check(sent.empty(), "time setter is not forwarded");
+  // Stellarium Mobile's real H: 19:32:36 10/20/26, offset +5 (IST truncated), no DST.
+  // Our zone is +5:30 -> keep it: UTC = 19:32:36 - 5:30 = 14:02:36Z
+  clockCalls = 0;
+  expect(std::string("H\x13\x20\x24\x0A\x14\x1A\x05\x00", 9), "#");
+  check(clockCalls == 1 && gotOff == 330 && gotUtc == 1792504956L, "NexStar H (IST) -> setClock",
+        std::to_string(gotUtc) + " " + std::to_string(gotOff));
+  check(sent.empty(), "translator itself sends nothing to the mount for H");
+  expect(std::string("H\x0C\x00\x00\x07\x04\x1A\xFB\x01", 9), "#");   // 12:00 7/4/26, UTC-5 + DST (US EDT)
+  check(gotOff == -240 && gotUtc == 1783180800L, "NexStar H west + DST",
+        std::to_string(gotUtc) + " " + std::to_string(gotOff));
+  std::string hd = send("h");
+  check(hd.size() == 9 && hd[7] == 1, "h echoes the client's DST flag", esc(hd));
+  expect(std::string("H\x13\x20\x24\x0D\x14\x1A\x05\x00", 9), "#");   // month 13: rejected
+  check(clockCalls == 2, "bad H not applied");
+  siteCalls = 0;
+  expect(std::string("W\x0D\x01\x0A\x00\x4D\x2B\x18\x00", 9), "#");   // 13 01 10 N, 77 43 24 E
+  check(siteCalls == 1 && fabs(gotLat - 13.01944) < 1e-4 && fabs(gotLon - 77.72333) < 1e-4, "NexStar W -> setSite");
+  expect(std::string("W\x21\x00\x00\x01\x76\x00\x00\x01", 9), "#");   // 33 S, 118 W
+  check(gotLat == -33.0 && gotLon == -118.0, "NexStar W south / west");
+  gpsFix = true;
+  expect(std::string("H\x13\x20\x24\x0A\x14\x1A\x05\x00", 9), "#");   // glue refuses: still acked
+  gpsFix = false;
   expect("Z", "CC44,F71C#");                     // az 287.25, alt -12.5
 
   // junk + split + stale partial
   expect(std::string("\x00\xFF" "q", 3), "");
   expect("R40", ""); nowMs += 2000; xlateTick();
-  expect("J", "1#");
+  expect("J", std::string("\x01#", 2));
   expect("K", ""); expect("y", "y#");
 }
 
@@ -226,7 +270,7 @@ static void testNativeAndTracking() {
 }
 
 int main() {
-  XlateIo io = { mAsk, mWrite, mMillis, mClock, mSite, mAltAz, mLog };
+  XlateIo io = { mAsk, mWrite, mMillis, mClock, mSite, mAltAz, mLog, mSetClock, mSetSite };
   xlateBegin(io);
   testLx200();
   testNexStar();

@@ -36,7 +36,7 @@ Stellarium → ASCOM → iOptron Commander → Bluetooth GoTo + tracking verifie
 | State | Bridge | Poll / GPS sync | TFT header |
 |---|---|---|---|
 | **No BT client** | idle | polls the mount every ~0.4 s; auto-syncs from GPS when a fix is stable for 6 s, then every 3 h | `MOUNT OK` / `NO MOUNT` |
-| **BT client connected** | fully transparent (Protocol iOptron) or translated (LX200 / NexStar) | **stopped** — screen holds last values, GPS sync deferred until disconnect | `BRIDGE` (+ `LX200` / `NexStar`) |
+| **BT client connected** | fully transparent (Protocol iOptron) or translated (LX200 / NexStar) | **stopped** — screen holds last values. GPS sync: deferred until disconnect (iOptron), runs between client commands (LX200 / NexStar) | `BRIDGE` (+ `LX200` / `NexStar`) |
 
 The GPS sync first writes the **time zone** (`:SG`, from the *Time zone* menu
 setting — *Auto* derives it from the GPS position) with **DST off** (`:SDS0`),
@@ -44,7 +44,12 @@ then local date, local time, longitude and latitude (`:SC`, `:SL`, `:Sg`, `:St`)
 so the mount's internal UTC is always exact. It then logs the mount's read-back
 (`:GLT#`, `:GLS#`, `:GAC#`). A GPS fix that drops in and out does **not** re-sync
 (re-writing time/site while tracking upsets the mount); only the 3-hour timer, a
-time-zone change or *Sync GPS now* do.
+time-zone change or *Sync GPS now* do. The sync waits for the mount to answer
+(*fix ok - waiting for mount*), and a failed one is retried after a minute.
+
+The NEO-6M needs sky view (≥ 4 satellites). Without a fix (indoors, cold
+start), a planetarium app connected in LX200 / NexStar mode can set the time
+and site instead - see [Protocol translation](#protocol-translation-lx200--nexstar).
 
 ## Pin map (from the schematic)
 
@@ -264,7 +269,9 @@ Ctrl+1 GoTo · Ctrl+3 sync (LX200 only; Stellarium's NexStar driver has no sync)
 
 **Stellarium Mobile (Android):** tested with Protocol **NexStar** - pair the
 phone, pick a Celestron NexStar telescope over Bluetooth → *SmartEQ-RJ9*. GoTo,
-the direction buttons and stop all work.
+the direction buttons and stop all work; with the *Time* / *Location* **Sync**
+switches on, it sets the mount's clock and site from the phone (while the GPS
+has no fix) and shows *Time: correct*.
 
 **SkySafari (Android):** Settings → Telescope → Setup → scope type as in the
 table, mount type *Equatorial GoTo (German)*, connect via Bluetooth to
@@ -284,26 +291,38 @@ What is translated:
 | park | `:hP#` | — | `:MH#` (zero position) |
 | info | `ACK`→`P`, `:GVP/GVN/GVD/GVT#`, `:Gc#`, `:GT#` | `V` (4.21), `m` (20, AVX), `J`, `K` | — |
 | time / site read | `:GL# :Ga# :GC# :GG# :Gt# :Gg#` | `h` `w` | — (from GPS / last mount poll) |
-| time / site set | `:SC :SL :SG :St :Sg …` → acknowledged, **not applied** | `H` `W` → `#`, not applied | — |
+| time / site set | `:SG` + `:SL` + `:SC` (applied once date and time are in), `:St`, `:Sg` | `H`, `W` | `:SG` `:SDS0#` `:SC` `:SL`, `:Sg` `:St` — **only while the GPS has no fix** |
 
 Notes:
 
-- Time and site **set** commands are acknowledged but ignored: the GPS sync owns
-  them (a wrong site silently breaks every GoTo, and re-writing the clock while
-  tracking upsets the mount).
+- Time and site **set** commands from the app are written to the mount only
+  while the GPS has **no fix** — with a fix the GPS stays the authority and the
+  app's values are acknowledged but not applied. The time zone written is the
+  controller's *Time zone* setting (Auto: from the site) whenever the app's
+  offset is within an hour of it; an app time that already matches the mount
+  (±2 s) isn't rewritten (rewriting the clock while tracking upsets the mount).
+- NexStar sends the UTC offset in **whole hours**: India's +5:30 arrives as +5
+  with the true local time. The controller keeps +5:30 for the mount and
+  answers `h` with the local time that matches the whole-hour offset (UTC + 5:00),
+  so the app's UTC check passes (Stellarium Mobile: *Time: correct*).
 - After a GoTo, the controller watches the slew and turns tracking back on if
   the mount ends it stopped, so Stellarium GoTos work right after *Go to zero position*.
 - NexStar Alt-Az GoTo (`B`/`b`) isn't supported. If the arrow buttons in an app
   move the wrong way East/West, use the app's reverse-direction setting.
 - The translator logic has a host test with a mock mount:
   `sh tools/xlate-test/run.sh` (g++; on Windows run it in WSL).
+- To see exactly what an app sends, `trace` on the USB console logs every
+  client command and reply, or run the NexStar hand-controller simulator
+  `python tools/scope-sim/scope_sim.py COMx` on a PC's *Incoming* Bluetooth
+  COM port and point the app at the PC.
 
 ### Debug console (USB, 115200 baud)
 
 `:cmd#` lines are sent to the mount and the reply is printed (idle only);
 `.` toggles the `[state]` lines; `pair` / `unpair` open / close the pairing
 window; `accept` accepts a pending pairing code (same as BOOT);
-`proto` shows and `proto ioptron|lx200|nexstar` sets the Bluetooth client protocol.
+`proto` shows and `proto ioptron|lx200|nexstar` sets the Bluetooth client protocol;
+`trace` toggles a log of every translated client command and reply.
 
 ## iOptron replies decoded (SmartEQ Pro, protocol V1.00)
 
@@ -348,6 +367,8 @@ GoTo (verified against iOptron Commander on this mount): `:ST1#` tracking on,
 | `src/ephem.*` | planets + Moon positions (JPL elements / Meeus), Sun for the 15° safety guard |
 | `src/ui.*` | screens: status → menu → object list → object page / TRACK; time zone, Bluetooth, factory reset |
 | `tools/sdcard/` | builds the SD content + `docs/sdcard/*.zip` |
+| `tools/xlate-test/` | host test of the translator against a mock mount |
+| `tools/scope-sim/` | NexStar hand-controller simulator on a PC serial port (see what an app sends) |
 | `src/main.cpp` | `setup()` / `loop()` wiring only |
 | `scripts/merge_bin.py` | post-build: merged image + manifest for the web flasher |
 | `docs/` | GitHub Pages web flasher (`index.html`, `manifest.json`, `firmware/`) |

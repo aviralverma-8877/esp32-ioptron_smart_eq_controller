@@ -6,6 +6,7 @@
 #include "bt_bridge.h"
 #include "message.h"
 #include "timeutil.h"
+#include "xlate.h"
 #include <Preferences.h>
 #include <math.h>
 #include <string.h>
@@ -19,6 +20,13 @@ uint16_t syncMsgColor = C_LBL;
 static bool     syncArmed   = true;    // re-armed on fix loss / periodic timer
 static uint32_t lockSinceMs = 0;       // millis when the present fix began
 static uint32_t lastSyncMs  = 0;       // millis of last OK sync (0 = never)
+static uint32_t failMs      = 0;       // millis of last failed auto sync (0 = none pending)
+#define GPS_RETRY_MS         60000UL   // failed auto sync: try again after this
+
+// A transparent (iOptron) bridge must not get our commands mixed into the
+// client's stream; in LX200 / NexStar mode the controller owns the line, so
+// the sync runs between client commands.
+static bool btHolds() { return btConnected && xlateMode() == XL_NATIVE; }
 
 // ---- time zone from GPS position ---------------------------------------
 // The mount keeps UTC internally as (local - offset - DST), so the offset we
@@ -70,9 +78,55 @@ void gpsSyncTzSet(int minutes) {
   LOG("[sync] time zone set: %d%s\n", minutes, minutes == TZ_AUTO ? " (auto)" : " min");
 }
 
+// ---- mount writers (GPS sync + time / site sent by a Bluetooth app) -------
+static bool ask1(const char *c) {                 // setters answer a bare '1' (no '#')
+  char r[8];
+  bool ok = askMount(c, r, sizeof r, 700, 1) == 1 && r[0] == '1';
+  LOG("[sync] %s -> %s\n", c, ok ? "1" : "FAIL");
+  return ok;
+}
+
+int gpsSyncWriteClock(long utcEpoch, long tzMin) {
+  // zone + DST first, so the local time below is converted back to true UTC
+  uint32_t t0 = millis();
+  char c[24];
+  int ok = 0;
+  snprintf(c, sizeof c, ":SG%c%03ld#", tzMin < 0 ? '-' : '+', labs(tzMin));
+  ok += ask1(c);
+  ok += ask1(":SDS0#");
+  // the clock moved on while the zone was written: send the time as of :SL
+  long loc = utcEpoch + (long)((millis() - t0 + 500) / 1000) + tzMin * 60L;
+  long days = loc / 86400, tod = loc % 86400;
+  if (tod < 0) { tod += 86400; days--; }
+  int Y, Mo, D; civilFromDays(days, Y, Mo, D);
+  snprintf(c, sizeof c, ":SC%02d%02d%02d#", Y % 100, Mo, D);
+  ok += ask1(c);
+  snprintf(c, sizeof c, ":SL%02ld%02ld%02ld#", tod / 3600, tod / 60 % 60, tod % 60);
+  ok += ask1(c);
+  return ok;
+}
+
+int gpsSyncWriteSite(double latDeg, double lonDeg) {
+  // SmartEQ Pro (:V# V1.00) takes the site in whole arc-seconds, 6 digits. The
+  // 8-digit 0.01" form is accepted ('1') but wraps to a garbage site.
+  char c[24];
+  int ok = 0;
+  if (!isnan(lonDeg)) {
+    long as = llround(lonDeg * 3600.0);
+    snprintf(c, sizeof c, ":Sg%c%06ld#", as < 0 ? '-' : '+', labs(as));
+    ok += ask1(c);
+  }
+  if (!isnan(latDeg)) {
+    long as = llround(latDeg * 3600.0);
+    snprintf(c, sizeof c, ":St%c%06ld#", as < 0 ? '-' : '+', labs(as));
+    ok += ask1(c);
+  }
+  return ok;
+}
+
 // ---- the actual sync -------------------------------------------------
 static void doGpsSync(bool manual) {
-  if (btConnected) {
+  if (btHolds()) {
     if (manual) setMsg("BT client active - cannot sync", C_WARN, 4000);
     snprintf(syncMsg, sizeof syncMsg, "sync held (BT active)"); syncMsgColor = C_WARN;
     return;
@@ -81,44 +135,23 @@ static void doGpsSync(bool manual) {
     if (manual) setMsg("GPS NOT LOCKED - cannot sync", C_BAD, 4000);
     return;
   }
+  if (!mountLinkUp()) {
+    if (manual) setMsg("No mount link - cannot sync", C_BAD, 4000);
+    return;
+  }
 
   setMsg("Syncing mount from GPS...", C_WARN, 9000);
 
   char r[40], c[24];
   if (askMount(":GLT#", r, sizeof r, 600)) LOG("[sync] before: :GLT# -> %s\n", r);
 
-  // zone + DST first, so the local time below is converted back to true UTC
   long tz = gpsSyncTzEffective();
-  int ok = 0;
-  snprintf(c, sizeof c, ":SG%c%03ld#", tz < 0 ? '-' : '+', labs(tz));
-  if (askMount(c, r, sizeof r, 700) && r[0] == '1') ok++;
-  LOG("[sync] %s -> %s\n", c, r);
-  if (askMount(":SDS0#", r, sizeof r, 700) && r[0] == '1') ok++;
-  LOG("[sync] :SDS0# -> %s\n", r);
-
-  long ep  = daysFromCivil(gps.date.year(), gps.date.month(), gps.date.day()) * 86400L
-           + gps.time.hour() * 3600L + gps.time.minute() * 60L + gps.time.second();
-  long loc = ep + tz * 60L;
-  int Y, Mo, D; civilFromDays(loc / 86400, Y, Mo, D);
-  long tod = loc % 86400; if (tod < 0) tod += 86400;
-  int hh = tod / 3600, mi = (tod % 3600) / 60, ss = tod % 60;
-
-  // SmartEQ Pro (:V# V1.00) takes the site in whole arc-seconds, 6 digits. The
-  // 8-digit 0.01" form is accepted ('1') but wraps to a garbage site.
-  long lonAs = llround(gps.location.lng() * 3600.0);
-  long latAs = llround(gps.location.lat() * 3600.0);
-
-  snprintf(c, sizeof c, ":SC%02d%02d%02d#", Y % 100, Mo, D);
-  if (askMount(c, r, sizeof r, 700) && r[0] == '1') ok++;
-  snprintf(c, sizeof c, ":SL%02d%02d%02d#", hh, mi, ss);
-  if (askMount(c, r, sizeof r, 700) && r[0] == '1') ok++;
-  snprintf(c, sizeof c, ":Sg%c%06ld#", lonAs < 0 ? '-' : '+', labs(lonAs));
-  if (askMount(c, r, sizeof r, 700) && r[0] == '1') ok++;
-  snprintf(c, sizeof c, ":St%c%06ld#", latAs < 0 ? '-' : '+', labs(latAs));
-  if (askMount(c, r, sizeof r, 700) && r[0] == '1') ok++;
-
-  LOG("[sync] %04d-%02d-%02d %02d:%02d:%02d local (UTC%+ld min)  lat %.5f lon %.5f  ok=%d/6\n",
-      Y, Mo, D, hh, mi, ss, tz, gps.location.lat(), gps.location.lng(), ok);
+  long ep = daysFromCivil(gps.date.year(), gps.date.month(), gps.date.day()) * 86400L
+          + gps.time.hour() * 3600L + gps.time.minute() * 60L + gps.time.second();
+  int ok = gpsSyncWriteClock(ep, tz) + gpsSyncWriteSite(gps.location.lat(), gps.location.lng());
+  LOG("[sync] GPS %02d:%02d:%02dZ (UTC%+ld min)  lat %.5f lon %.5f  ok=%d/6\n",
+      gps.time.hour(), gps.time.minute(), gps.time.second(), tz,
+      gps.location.lat(), gps.location.lng(), ok);
   if (askMount(":GLT#", r, sizeof r, 600)) LOG("[sync] after:  :GLT# -> %s\n", r);
   if (askMount(":GLS#", r, sizeof r, 600)) LOG("[sync] after:  :GLS# -> %s\n", r);
   if (askMount(":GAC#", r, sizeof r, 600)) LOG("[sync] after:  :GAC# -> %s\n", r);
@@ -126,6 +159,7 @@ static void doGpsSync(bool manual) {
   if (ok == 6) {
     setMsg("GPS sync OK", C_OK, 6000);
     lastSyncMs = millis();
+    failMs = 0;
     snprintf(syncMsg, sizeof syncMsg, "synced %02d:%02d:%02dZ",
              gps.time.hour(), gps.time.minute(), gps.time.second());
     syncMsgColor = C_OK;
@@ -133,6 +167,7 @@ static void doGpsSync(bool manual) {
     snprintf(c, sizeof c, "GPS sync incomplete %d/6", ok); setMsg(c, C_WARN, 8000);
     snprintf(syncMsg, sizeof syncMsg, "sync failed %d/6 - retrying", ok);
     syncMsgColor = C_BAD;
+    failMs = millis();                     // autoSyncTick re-arms after GPS_RETRY_MS
   }
   mountRequestTimeRefresh();               // re-read the displayed values
 }
@@ -154,10 +189,13 @@ static void autoSyncTick() {
   if (!lockSinceMs) lockSinceMs = now;
   if (lastSyncMs && now - lastSyncMs > GPS_RESYNC_MS) syncArmed = true;
 
-  if (btConnected) {
+  if (btHolds()) {
     snprintf(syncMsg, sizeof syncMsg, "sync held (BT active)"); syncMsgColor = C_WARN;
     return;
   }
+  // a failed sync (mount busy / not answering) used to wait for the next fix
+  // loss, i.e. forever under open sky - retry it after a minute instead
+  if (!syncArmed && failMs && now - failMs > GPS_RETRY_MS) { failMs = 0; syncArmed = true; }
   if (!syncArmed) return;
 
   uint32_t held = now - lockSinceMs;
@@ -165,6 +203,10 @@ static void autoSyncTick() {
     snprintf(syncMsg, sizeof syncMsg, "fix ok - syncing in %lus",
              (unsigned long)((GPS_LOCK_SETTLE_MS - held) / 1000 + 1));
     syncMsgColor = C_WARN;
+    return;
+  }
+  if (!mountLinkUp()) {                    // stay armed: sync as soon as the mount answers
+    snprintf(syncMsg, sizeof syncMsg, "fix ok - waiting for mount"); syncMsgColor = C_WARN;
     return;
   }
   syncArmed = false;

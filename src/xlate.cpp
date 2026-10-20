@@ -14,8 +14,8 @@
 //   :CM#   sync to target    :q#    stop      :MH# zero position
 //   :SRn#  move rate 1..9    :mn# :ms# :me# :mw# move   :qR# :qD# stop one axis
 //   :RT0..2# sidereal / lunar / solar tracking
-// Time and site setters from the client are acknowledged but NOT written to the
-// mount - the GPS sync owns those (a wrong :SL/:Sg breaks every GoTo).
+// Time and site the client sends go to XlateIo::setClock / setSite; the glue
+// writes them to the mount only while the GPS has no fix (GPS stays the authority).
 #include "xlate.h"
 #include "timeutil.h"
 #include <math.h>
@@ -33,8 +33,22 @@ static const uint32_t POS_MS     = 250;     // :GEC# reply reused for :GR# + :GD
 static const uint32_t STATUS_MS  = 300;
 static const uint32_t SLEW_MAX_MS = 240000;
 
-static void out(const char *s)                 { io.write((const uint8_t *)s, strlen(s)); }
-static void outb(const uint8_t *b, size_t n)   { io.write(b, n); }
+static bool trace = false;                      // console "trace": log every command + reply
+
+static void traceBytes(const char *tag, const uint8_t *b, size_t n) {
+  if (!trace || !io.log) return;
+  char s[96]; size_t k = 0;
+  for (size_t i = 0; i < n && k < sizeof s - 5; i++) {
+    uint8_t c = b[i];
+    if (c >= 32 && c < 127 && c != '\\') s[k++] = (char)c;
+    else k += snprintf(s + k, sizeof s - k, "\\x%02X", c);
+  }
+  s[k] = 0;
+  io.log("[xl] %s %s\n", tag, s);
+}
+
+static void outb(const uint8_t *b, size_t n)   { traceBytes("  <-", b, n); io.write(b, n); }
+static void out(const char *s)                 { outb((const uint8_t *)s, strlen(s)); }
 
 static bool allDigits(const char *s, size_t n) {
   for (size_t i = 0; i < n; i++) if (s[i] < '0' || s[i] > '9') return false;
@@ -155,6 +169,34 @@ static void localNow(bool &ok, int &Y, int &Mo, int &D, int &h, int &mi, int &s,
   h = tod / 3600; mi = tod / 60 % 60; s = tod % 60;
 }
 
+// ---- time / site sent by the client --------------------------------------------
+// NexStar carries the UTC offset in whole hours: India's +5:30 arrives as +5
+// with the true local time, which taken literally puts UTC 30 min off. If the
+// client's offset is within an hour of ours, ours is the precise version of it.
+static long pickOffset(long clientMin) {
+  long utc, ours;
+  if (io.clock && io.clock(utc, ours) && labs(ours - clientMin) < 60) return ours;
+  return clientMin;
+}
+
+static void applyClock(int Y, int Mo, int D, long tod, long offMin, const char *src) {
+  if (Y < 2020 || Y > 2099 || Mo < 1 || Mo > 12 || D < 1 || D > 31 || tod < 0 || labs(offMin) > 14 * 60) {
+    XLOG("[xl] %s time rejected (bad fields)\n", src);
+    return;
+  }
+  long utc = daysFromCivil(Y, Mo, D) * 86400L + tod - offMin * 60L;
+  bool ok = io.setClock && io.setClock(utc, offMin);
+  XLOG("[xl] %s time %04d-%02d-%02d %02ld:%02ld:%02ld UTC%+ld min: %s\n", src, Y, Mo, D,
+       tod / 3600 % 24, tod / 60 % 60, tod % 60, offMin,
+       ok ? "written to the mount" : "not applied (GPS has a fix)");
+}
+
+static void applySite(double lat, double lon, const char *src) {
+  bool ok = io.setSite && io.setSite(lat, lon);
+  XLOG("[xl] %s site lat %.4f lon %.4f: %s\n", src, lat, lon,
+       ok ? "written to the mount" : "not applied (GPS has a fix)");
+}
+
 // ================================ LX200 ===========================================
 static char     lxBuf[48];
 static uint8_t  lxN = 0;
@@ -162,6 +204,23 @@ static bool     lxIn = false, lxLong = true;       // high precision until :U# t
 static uint32_t lxMs = 0;
 static double   tgtRa = 0, tgtDec = 0;
 static bool     tgtRaOk = false, tgtDecOk = false;
+// :SC date and :SL time arrive as separate commands: applied once both are in
+static int      lxY = 0, lxMo = 0, lxD = 0;
+static long     lxTod = 0, lxOffMin = 0;
+static uint32_t lxTodMs = 0;
+static bool     lxHaveDate = false, lxHaveTod = false, lxHaveOff = false;
+
+static void lxTryClock() {
+  if (!lxHaveDate || !lxHaveTod) return;
+  long tod = lxTod + (long)((io.millis() - lxTodMs) / 1000);   // :SL aged until :SC came
+  long off = lxOffMin;
+  if (!lxHaveOff) {                                            // no :SG: our own zone
+    long utc;
+    if (!io.clock || !io.clock(utc, off)) off = 0;
+  }
+  applyClock(lxY, lxMo, lxD, tod, off, "LX200");
+  lxHaveDate = lxHaveTod = false;
+}
 
 // "HH:MM:SS#" or "HH:MM.T#"
 static void lxHms(double h, char *b, size_t n) {
@@ -207,7 +266,7 @@ static bool lxParseHms(const char *s, double &h) {
   return true;
 }
 // "sDD*MM:SS", "sDD*MM", separators * : ' 0xDF
-static bool lxParseDms(const char *s, double &d) {
+static bool lxParseDms(const char *s, double &d, double maxDeg = 90.0) {
   char *e;
   while (*s == ' ') s++;
   int sg = 1;
@@ -220,12 +279,13 @@ static bool lxParseDms(const char *s, double &d) {
   if (isSep(*e) && e[1]) { s = e + 1; ss = strtod(s, &e); if (e == s) return false; }
   if (dd < 0 || mm < 0 || mm >= 60 || ss < 0 || ss >= 60) return false;
   double v = dd + mm / 60.0 + ss / 3600.0;
-  if (v > 90.0) return false;
+  if (v > maxDeg) return false;
   d = sg * v;
   return true;
 }
 
 static void lxCommand(const char *c) {
+  traceBytes("->", (const uint8_t *)c, strlen(c));
   char b[64];
   double ra, dec;
   if (c[0] == 'G') {                               // ---- getters
@@ -276,12 +336,45 @@ static void lxCommand(const char *c) {
     double v;                                      // invalid input keeps the old target
     if (c[1] == 'r') { bool ok = lxParseHms(c + 2, v); if (ok) { tgtRa = v; tgtRaOk = true; } out(ok ? "1" : "0"); return; }
     if (c[1] == 'd') { bool ok = lxParseDms(c + 2, v); if (ok) { tgtDec = v; tgtDecOk = true; } out(ok ? "1" : "0"); return; }
-    if (c[1] == 'C') {                             // date: Meade replies with two update strings
-      XLOG("[xl] ignored (GPS owns time): :%s#\n", c);
+    if (c[1] == 'C') {                             // MM/DD/YY local date; Meade replies with two update strings
+      int mo, d, y;
+      if (sscanf(c + 2, " %d/%d/%d", &mo, &d, &y) != 3) { out("0"); return; }
+      lxY = 2000 + y % 100; lxMo = mo; lxD = d; lxHaveDate = true;
       out("1Updating Planetary Data#                              #");
+      lxTryClock();
       return;
     }
-    if (c[1]) { XLOG("[xl] ignored (GPS owns time/site): :%s#\n", c); out("1"); return; }
+    if (c[1] == 'L') {                             // HH:MM:SS local time
+      if (!lxParseHms(c + 2, v)) { out("0"); return; }
+      lxTod = lround(v * 3600.0); lxTodMs = io.millis(); lxHaveTod = true;
+      out("1");
+      lxTryClock();
+      return;
+    }
+    if (c[1] == 'G') {                             // sHH[.H]: hours to ADD to local time for UTC
+      char *e;
+      double h = strtod(c + 2, &e);
+      if (e == c + 2 || fabs(h) > 14.0) { out("0"); return; }
+      lxOffMin = -lround(h * 60.0); lxHaveOff = true;
+      out("1");
+      return;
+    }
+    if (c[1] == 't') {                             // sDD*MM latitude
+      if (!lxParseDms(c + 2, v)) { out("0"); return; }
+      out("1");
+      applySite(v, NAN, "LX200");
+      return;
+    }
+    if (c[1] == 'g') {                             // DDD*MM longitude, WEST-positive
+      if (!lxParseDms(c + 2, v, 360.0)) { out("0"); return; }
+      double lon = -v;
+      if (lon < -180.0) lon += 360.0;
+      if (lon > 180.0) lon -= 360.0;
+      out("1");
+      applySite(NAN, lon, "LX200");
+      return;
+    }
+    if (c[1]) { XLOG("[xl] LX200 setter ignored: :%s#\n", c); out("1"); return; }
   } else if (!strcmp(c, "MS")) {                   // ---- motion
     if (!tgtRaOk || !tgtDecOk) { out("2No target set#"); return; }
     switch (gotoRaDec(tgtRa, tgtDec)) {
@@ -332,6 +425,7 @@ static void lxFeed(uint8_t c) {
 
 // =============================== NexStar ==========================================
 static uint8_t  nxBuf[20];
+static int      nxDst = 0;                         // DST flag of the client's last H, echoed in h
 static uint8_t  nxN = 0, nxNeed = 0;
 static uint32_t nxMs = 0;
 
@@ -444,7 +538,7 @@ static void nxCommand(const uint8_t *c) {
     case 'B': case 'b': XLOG("[xl] NexStar alt-az GoTo unsupported\n"); out("#"); return;
     case 'L': out(readStatus() == 2 ? "1#" : "0#"); return;
     case 'M': stopAll(); out("#"); return;
-    case 'J': out("1#"); return;                   // always "aligned"
+    case 'J': b[0] = 1; b[1] = '#'; outb(b, 2); return;   // aligned: binary 1 (ASCII '1' = "Not aligned")
     case 'K': b[0] = c[1]; b[1] = '#'; outb(b, 2); return;
     case 'V': b[0] = 4; b[1] = 21; b[2] = '#'; outb(b, 3); return;    // HC firmware 4.21
     case 'm': b[0] = 20; b[1] = '#'; outb(b, 2); return;              // model 20 = AVX (GEM)
@@ -457,10 +551,21 @@ static void nxCommand(const uint8_t *c) {
     case 'T': ask1(c[1] ? ":ST1#" : ":ST0#"); out("#"); return;
     case 'P': nxPassthrough(c + 1); return;
     case 'h': {                                    // Q R S T U V W X: local time, UTC offset (h), DST
-      bool ok; int Y, Mo, D, h, mi, s; long off;
-      localNow(ok, Y, Mo, D, h, mi, s, off);
-      b[0] = h; b[1] = mi; b[2] = s; b[3] = Mo; b[4] = D; b[5] = (uint8_t)(Y - 2000);
-      b[6] = (uint8_t)(int8_t)lround(off / 60.0); b[7] = 0; b[8] = '#';
+      // The offset field is whole hours, and apps derive UTC as local - W - X.
+      // For a half-hour zone (India +5:30 -> W 5) the true local time would read
+      // 30 min wrong ("Time: incorrect" in Stellarium Mobile), so report the
+      // local time that matches W: UTC + W + X. The mount keeps the real zone.
+      long utc = 0, off = 0;
+      bool ok = io.clock && io.clock(utc, off);
+      int W = (int)((off - nxDst * 60) / 60);      // truncated, as the apps send it
+      long loc = utc + (W + nxDst) * 3600L;
+      long days = loc / 86400, tod = loc % 86400;
+      if (tod < 0) { tod += 86400; days--; }
+      int Y = 2000, Mo = 1, D = 1;
+      if (ok) civilFromDays(days, Y, Mo, D); else tod = 0;
+      b[0] = tod / 3600; b[1] = tod / 60 % 60; b[2] = tod % 60;
+      b[3] = Mo; b[4] = D; b[5] = (uint8_t)(Y - 2000);
+      b[6] = (uint8_t)(int8_t)W; b[7] = nxDst; b[8] = '#';
       outb(b, 9);
       return;
     }
@@ -474,19 +579,35 @@ static void nxCommand(const uint8_t *c) {
       outb(b, 9);
       return;
     }
-    case 'H': case 'W': XLOG("[xl] ignored (GPS owns time/site): NexStar %c\n", c[0]); out("#"); return;
+    case 'H': {                                    // Q R S T U V W X (local time, offset h, DST)
+      int X = c[8] ? 1 : 0;
+      long off = pickOffset(((int8_t)c[7] + X) * 60L);
+      nxDst = X;
+      applyClock(2000 + c[6], c[4], c[5], c[1] * 3600L + c[2] * 60L + c[3], off, "NexStar");
+      out("#");
+      return;
+    }
+    case 'W': {                                    // lat d m s N/S, lon d m s E/W
+      double lat = c[1] + c[2] / 60.0 + c[3] / 3600.0, lon = c[5] + c[6] / 60.0 + c[7] / 3600.0;
+      if (c[4]) lat = -lat;
+      if (c[8]) lon = -lon;
+      if (fabs(lat) <= 90.0 && fabs(lon) <= 180.0) applySite(lat, lon, "NexStar");
+      else XLOG("[xl] NexStar site rejected (bad fields)\n");
+      out("#");
+      return;
+    }
   }
 }
 
 static void nxFeed(uint8_t c) {
   if (nxN == 0) {
     int n = nxArgLen(c);
-    if (n < 0) return;                             // not a command letter: skip
+    if (n < 0) { XLOG("[xl] NexStar unknown byte 0x%02X '%c'\n", c, c >= 32 && c < 127 ? c : '.'); return; }
     nxNeed = (uint8_t)(n + 1);
     nxMs = io.millis();
   }
   nxBuf[nxN++] = c;
-  if (nxN >= nxNeed) { nxN = 0; nxCommand(nxBuf); }
+  if (nxN >= nxNeed) { nxN = 0; traceBytes("->", nxBuf, nxNeed); nxCommand(nxBuf); }
 }
 
 // ================================ public ==========================================
@@ -500,6 +621,9 @@ void xlateSetMode(XlateMode m) {
 
 XlateMode xlateMode() { return mode; }
 
+void xlateSetTrace(bool on) { trace = on; }
+bool xlateTrace() { return trace; }
+
 const char *xlateModeName(XlateMode m) {
   switch (m) {
     case XL_LX200:   return "LX200";
@@ -510,8 +634,9 @@ const char *xlateModeName(XlateMode m) {
 
 void xlateReset() {
   lxIn = false; lxN = 0; lxLong = true;
-  nxN = 0;
+  nxN = 0; nxDst = 0;
   tgtRaOk = tgtDecOk = false;
+  lxHaveDate = lxHaveTod = lxHaveOff = false;
   posOk = false; stFresh = false;
   watch = false;
 }
