@@ -1,10 +1,10 @@
 // bt_bridge.h - Classic Bluetooth SPP endpoint and the byte bridge: transparent
 // (iOptron) or through the LX200 / NexStar translator (xlate.h, proto.h).
 //
-// The device is never discoverable except during a pairing window opened from
-// the UI. Pairing uses SSP numeric comparison, accepted on the controller.
-// Bonds are kept by Bluedroid in NVS (survive reboots); device names are saved
-// alongside. Only bonded devices may open the SPP link.
+// Open like a serial Bluetooth module: always discoverable and connectable,
+// SSP "Just Works" pairing (no code, no button), any device may connect. A
+// device whose old pairing we no longer have simply pairs again. Bonds are kept
+// by Bluedroid in NVS (survive reboots); device names are saved alongside.
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
@@ -12,17 +12,9 @@
 extern volatile bool btConnected;   // a client is connected -> stay transparent
 
 void btBegin();
-void btTick();                       // every loop: pairing timeout, bond bookkeeping
+void btTick();                       // every loop: connect / pairing bookkeeping
 void btBridgeTick();                 // when connected: pump both directions (or translate, xlate.h)
 void btWrite(const uint8_t *buf, size_t n);   // to the connected client (translator replies)
-
-// ---- pairing window ----
-void     btPairStart(uint32_t ms);   // discoverable + accept new pairings for `ms`
-void     btPairStop();
-bool     btPairing();
-uint32_t btPairLeftMs();
-bool     btConfirmPending(uint32_t *code);   // peer waits for numeric-comparison OK
-void     btConfirmReply(bool accept);
 
 // ---- stored (bonded) devices ----
 int  btBondCount();

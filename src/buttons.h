@@ -21,3 +21,4 @@ enum BtnEvent : uint8_t {
 void     buttonsBegin();     // configure pins, start the 10 ms sampler
 BtnEvent buttonsGet();       // next queued event, EV_NONE if empty (non-blocking)
 bool     buttonsAnyDown();   // any button currently held (debounced)
+void     buttonsInject(BtnEvent e);   // queue an event as if pressed (USB console "btn")

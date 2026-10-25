@@ -5,9 +5,9 @@ Go2Nova / SmartEQ-class mount into a wireless target:
 
 * **Classic Bluetooth "serial port" (SPP)** ⇄ **RS-232 / RJ9** — every byte is
   forwarded unmodified, both directions, so a phone / PC / planetarium app
-  (iOptron Commander, ASCOM …) drives the mount over Bluetooth. The device
-  stays **hidden**; it is only discoverable during a 2-minute pairing window
-  opened from the menu, and only paired devices may connect.
+  (iOptron Commander, ASCOM …) drives the mount over Bluetooth. Like a plain
+  serial Bluetooth module it is **always visible** and pairs without a code —
+  nothing to do on the controller.
 * **Optional LX200 / NexStar translation** — switch the Bluetooth side to
   **Meade LX200** or **Celestron NexStar** and apps with those drivers built in
   (Stellarium, SkySafari, INDI/KStars …) connect directly, no ASCOM or
@@ -127,7 +127,7 @@ catalog rows need one):
 | Stop mount | `:q#` |
 | Go to zero position | `:MH#` — select twice to confirm |
 | Time zone | BOOT to edit, A/B = ±15 min or **Auto** (from GPS position), BOOT saves (NVS) and re-syncs, hold BOOT cancels |
-| Bluetooth (N paired) | pair a new device, **Protocol** (iOptron / LX200 / NexStar), list / forget paired devices — see [Pairing](#pairing) |
+| Bluetooth (N paired) | **Protocol** (iOptron / LX200 / NexStar), list / forget paired devices — see [Pairing](#pairing) |
 | Factory reset | select twice: forgets all paired Bluetooth devices, clears saved settings, reboots (the mount's own settings are untouched) |
 
 **Object page** — left: thumbnail + name; right: object info with a suggested
@@ -185,34 +185,27 @@ pio device monitor            # watch [state] lines @ 115200
 
 ## Pairing
 
-The controller is **never discoverable** except during a pairing window, and it
-drops connections from devices it has not paired with. Pairings (bonds) live in
-the ESP32's NVS, so they survive reboots and re-flashing (but not *Factory reset*
-or an *Erase device* flash).
+The controller works like a plain serial Bluetooth module: it is **always
+visible** as **"SmartEQ-RJ9"**, pairs with *Just Works* (no code, nothing to
+press on the controller) and accepts any device. Anyone within Bluetooth range
+can therefore connect and move the mount. Only one device is connected at a time.
+Pairings live in the ESP32's NVS, so they survive reboots and re-flashing (but
+not *Factory reset* or an *Erase device* flash).
 
-1. On the controller: **Menu → Bluetooth → Pair new device**. It becomes visible
-   as **"SmartEQ-RJ9"** for 2 minutes (the row counts down).
-2. On the phone / PC: add Bluetooth device **SmartEQ-RJ9**.
-3. A **6-digit code** appears on the controller — check it matches the one on the
-   phone / PC, then press **BOOT** to accept (hold BOOT rejects). Confirm on the
-   host too. The window closes after one successful pairing.
-4. Open the serial port it creates at **9600 8-N-1**.
+1. On the phone / PC: add Bluetooth device **SmartEQ-RJ9** and confirm *Pair*.
+   In **Stellarium Mobile**, tap **Select** in the telescope panel, wait for the
+   scan and pick SmartEQ-RJ9 — always pair from a fresh scan (see below).
+2. Open the serial port it creates at **9600 8-N-1**.
 
-The Bluetooth screen lists up to five paired devices; select one twice to forget
-it, or use *Forget all devices*.
+The Bluetooth screen lists the paired devices; select one twice to forget it, or
+use *Forget all devices*.
 
-**Pairing fails?** Remove "SmartEQ-RJ9" on the phone / PC **and** forget the
-phone / PC on the controller (Bluetooth screen, select it twice), then pair again.
-Stay on the Bluetooth screen until the phone shows the pairing as done -
-leaving it closes the pairing window. (Android re-checks an old key before it
-pairs; firmware before 2026-10-20 closed the window on that check and every
-Android pairing then failed.)
-
-**Upgrading from firmware without pairing control:** the old bond is gone on the
-controller side — remove "SmartEQ-RJ9" from the host's Bluetooth devices first,
-then pair again as above. If a host still lists it as paired but can't connect
-(writes to its COM port just time out and the controller logs nothing), remove
-it on the host and pair again.
+**"Connection to service failed" on Android?** Android shows its one-tap *Pair*
+prompt on screen only for a device it has just found in a scan; otherwise the
+prompt hides in a notification and the app gives up. This happens when the phone
+still remembers a pairing the controller no longer has (after *Factory reset*,
+an erase-flash or *Forget*). Tap **Select** in Stellarium to scan, pick
+SmartEQ-RJ9 and tap **Pair**.
 
 **Windows creates two COM ports** per pairing. Use the **Outgoing** one (its
 device ID contains the controller's Bluetooth address; *Settings → Bluetooth &
@@ -319,8 +312,8 @@ Notes:
 ### Debug console (USB, 115200 baud)
 
 `:cmd#` lines are sent to the mount and the reply is printed (idle only);
-`.` toggles the `[state]` lines; `pair` / `unpair` open / close the pairing
-window; `accept` accepts a pending pairing code (same as BOOT);
+`.` toggles the `[state]` lines; `bonds` lists and `forget <n|all>` removes
+paired Bluetooth devices;
 `proto` shows and `proto ioptron|lx200|nexstar` sets the Bluetooth client protocol;
 `trace` toggles a log of every translated client command and reply.
 
@@ -356,7 +349,7 @@ GoTo (verified against iOptron Commander on this mount): `:ST1#` tracking on,
 | `src/config.h` | build-time config (pins/bauds), `LOG` macro, TFT colours |
 | `src/message.*` | transient footer status line (`setMsg`) |
 | `src/mount.*` | RS-232 link: `askMount`, iOptron reply decoders, idle poll loop, link tracking |
-| `src/bt_bridge.*` | SPP endpoint + transparent byte pumping (or the translator); hidden/pairing window, numeric-comparison pairing, bond list (NVS), paired-only connections |
+| `src/bt_bridge.*` | SPP endpoint + transparent byte pumping (or the translator); always-visible Just Works pairing, bond list (NVS) |
 | `src/xlate.*` | LX200 / NexStar ⇄ iOptron translator (pure C++, host-tested in `tools/xlate-test/`) |
 | `src/proto.*` | translator glue: mount / GPS / site / Bluetooth hooks, protocol setting (NVS) |
 | `src/gps.*` | NEO-6M UART + TinyGPS++ + lock / status |

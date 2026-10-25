@@ -76,7 +76,7 @@ static void ioLog(const char *fmt, ...) {
   va_start(a, fmt);
   vsnprintf(b, sizeof b, fmt, a);
   va_end(a);
-  Serial.print(b);
+  dbgPuts(b);
 #else
   (void)fmt;
 #endif

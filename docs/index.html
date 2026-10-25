@@ -85,26 +85,25 @@
     <li>On first install, choose <b>Erase device</b> if offered (clears any old
         Bluetooth pairing / NVS).</li>
   </ol>
-  <p class="muted">After flashing: pair from <b>Menu → Bluetooth → Pair new device</b>
+  <p class="muted">After flashing: pair <b>SmartEQ-RJ9</b> from your phone / PC
      (see <a href="#bluetooth">Bluetooth &amp; Stellarium</a>) and open the serial port it
      creates at <b>9600&nbsp;8-N-1</b>. <b>Updating from an older version?</b> Remove
      “SmartEQ-RJ9” from your phone / PC's Bluetooth devices first, then pair again.</p>
 
   <h2 id="bluetooth">Bluetooth &amp; Stellarium</h2>
   <div class="card">
-    <p style="margin-top:0">The controller stays <b>hidden</b> and only accepts devices it has
-       paired with. Pairings are remembered across reboots and updates.</p>
+    <p style="margin-top:0">The controller works like a plain serial Bluetooth module: always
+       visible, pairs without a code, nothing to press on the controller. Anyone in Bluetooth range
+       can connect; one device at a time. Pairings are remembered across reboots and updates.</p>
     <h2 style="margin-top:1rem">Pair a phone or PC</h2>
     <ol>
-      <li>On the controller: <b>Menu → Bluetooth → Pair new device</b>. It is visible as
-          <b>SmartEQ-RJ9</b> for 2 minutes.</li>
-      <li>On the phone / PC: add Bluetooth device <b>SmartEQ-RJ9</b>.</li>
-      <li>A 6-digit code appears on the controller. If it matches the one on your phone / PC,
-          press <b>BOOT</b> (hold BOOT to reject) and confirm on the other device too.</li>
+      <li>On the phone / PC: add Bluetooth device <b>SmartEQ-RJ9</b> and tap <b>Pair</b>.</li>
+      <li>In Stellarium Mobile: tap <b>Select</b> in the telescope panel, wait for the scan and
+          pick SmartEQ-RJ9.</li>
     </ol>
-    <p class="muted"><b>Pairing fails?</b> Remove SmartEQ-RJ9 on the phone / PC <b>and</b> forget
-       that device on the controller, then pair again — and stay on the Bluetooth screen until the
-       phone says it's paired (leaving the screen closes the pairing window).</p>
+    <p class="muted"><b>“Connection to service failed” on Android?</b> The phone remembers an old
+       pairing the controller no longer has, and Android hides its Pair prompt in a notification.
+       Tap <b>Select</b> to scan again, pick SmartEQ-RJ9 and tap <b>Pair</b>.</p>
     <p class="muted">The same screen lists paired devices — select one twice to forget it.
        Windows creates two COM ports per pairing: use the <b>Outgoing</b> one
        (<i>Settings → Bluetooth &amp; devices → More Bluetooth settings → COM Ports</i>).

@@ -73,7 +73,8 @@
 
 // ---- debug log ------------------------------------------------------
 #if defined(DEBUG_LOG) && DEBUG_LOG
-#define LOG(...)  do { Serial.printf(__VA_ARGS__); } while (0)
+#include "debuglog.h"
+#define LOG(...)  do { dbgPrintf(__VA_ARGS__); } while (0)   // UART0 + TFT "Debug log"
 #else
 #define LOG(...)  do {} while (0)
 #endif

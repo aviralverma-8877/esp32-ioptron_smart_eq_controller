@@ -19,26 +19,19 @@ volatile bool btConnected = false;
 static const int MAX_BONDS = 16;
 
 // state shared with the Bluedroid task (callbacks) - plain flags, consumed in btTick()
-static volatile bool     pairOpen = false;
-static volatile uint32_t pairUntil = 0;
-static volatile bool     cfmPending = false;
-static volatile uint32_t cfmCode = 0;
-static esp_bd_addr_t     cfmBda;
 static volatile bool     authDone = false, authOk = false;
 static esp_bd_addr_t     authBda;
 static char              authName[ESP_BT_GAP_MAX_BDNAME_LEN + 1];
 static volatile uint32_t clientHandle = 0;
 static volatile uint32_t bondSerial = 0;
-static bool              codeAccepted = false;  // main task: BOOT accepted the code of...
-static esp_bd_addr_t     acceptedBda;           // ...this peer; its auth success = new pairing
-static volatile bool     openPending = false;   // SRV_OPEN seen, bond check due in btTick()
+static int               bondsSeen = 0;          // bond count at the last auth: a rise = new pairing
+static volatile bool     openPending = false;   // SRV_OPEN seen, handled in btTick()
 static volatile uint32_t openHandle = 0;
 static esp_bd_addr_t     openBda;
 
-static void setDiscoverable(bool on) {
-  esp_err_t e = esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE,
-                                         on ? ESP_BT_GENERAL_DISCOVERABLE : ESP_BT_NON_DISCOVERABLE);
-  LOG("[bt] scan mode %s -> %s\n", on ? "discoverable" : "hidden", esp_err_to_name(e));
+static void setVisible() {
+  esp_err_t e = esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
+  LOG("[bt] visible -> %s\n", esp_err_to_name(e));
 }
 
 static void macKey(const uint8_t *m, char *k) {          // NVS key: 12 hex chars
@@ -53,15 +46,6 @@ static int bondList(esp_bd_addr_t *list) {
   return n;
 }
 
-// -1 = unknown (lookup failed), 0 = not bonded, 1 = bonded
-static int bondState(const uint8_t *bda) {
-  esp_bd_addr_t list[MAX_BONDS];
-  int n = bondList(list);
-  if (n < 0) return -1;
-  for (int i = 0; i < n; i++) if (!memcmp(list[i], bda, ESP_BD_ADDR_LEN)) return 1;
-  return 0;
-}
-
 static void logMac(const char *what, const uint8_t *m) {
   LOG("[bt] %s %02X:%02X:%02X:%02X:%02X:%02X\n", what, m[0], m[1], m[2], m[3], m[4], m[5]);
 }
@@ -70,11 +54,9 @@ static void logMac(const char *what, const uint8_t *m) {
 static void sppEvent(esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
   switch (event) {
     case ESP_SPP_INIT_EVT:
-      setDiscoverable(pairOpen);    // the library just made us discoverable - undo
+      setVisible();
       break;
     case ESP_SPP_SRV_OPEN_EVT:
-      // Only note it here: the bond lookup takes stack locks, so it runs in
-      // btTick() on the main task. Bytes that arrive meanwhile stay buffered.
       if (param->srv_open.status != ESP_SPP_SUCCESS || btConnected || openPending) break;
       memcpy(openBda, param->srv_open.rem_bda, ESP_BD_ADDR_LEN);
       openHandle = param->srv_open.handle;
@@ -95,20 +77,10 @@ static void sppEvent(esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
 // Replaces the library's GAP handler (only needed for master-mode discovery).
 static void gapEvent(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param) {
   switch (event) {
-    case ESP_BT_GAP_CFM_REQ_EVT: {               // numeric comparison
-      bool ask = pairOpen && !cfmPending;
-      if (ask) {
-        memcpy(cfmBda, param->cfm_req.bda, ESP_BD_ADDR_LEN);
-        cfmCode = param->cfm_req.num_val;
-        cfmPending = true;
-      } else {
-        esp_bt_gap_ssp_confirm_reply(param->cfm_req.bda, false);
-      }
-      LOG("[bt] gap: confirm request %06lu (%s)\n", (unsigned long)param->cfm_req.num_val,
-          ask ? "asking user" : pairOpen ? "REJECTED - another code pending"
-                                         : "REJECTED - pairing window closed");
+    case ESP_BT_GAP_CFM_REQ_EVT:                 // Just Works: nothing to compare - accept
+      esp_bt_gap_ssp_confirm_reply(param->cfm_req.bda, true);
+      LOG("[bt] gap: pairing request accepted\n");
       break;
-    }
     case ESP_BT_GAP_KEY_REQ_EVT:                 // we have no keypad
       esp_bt_gap_ssp_passkey_reply(param->key_req.bda, false, 0);
       LOG("[bt] gap: passkey request rejected\n");
@@ -122,8 +94,8 @@ static void gapEvent(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param) 
 #endif
       uint8_t len = strlen(p);
       memcpy(pin, p, len);
-      esp_bt_gap_pin_reply(param->pin_req.bda, pairOpen, len, pin);
-      LOG("[bt] gap: legacy PIN request (%s)\n", pairOpen ? "answered" : "rejected");
+      esp_bt_gap_pin_reply(param->pin_req.bda, true, len, pin);
+      LOG("[bt] gap: legacy PIN request answered\n");
       break;
     }
     case ESP_BT_GAP_AUTH_CMPL_EVT:
@@ -131,10 +103,6 @@ static void gapEvent(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param) 
       strncpy(authName, (const char *)param->auth_cmpl.device_name, sizeof authName - 1);
       authName[sizeof authName - 1] = 0;
       authOk = param->auth_cmpl.stat == ESP_BT_STATUS_SUCCESS;
-      // the attempt is over (accepted, rejected, or timed out on the host): a
-      // code still waiting for BOOT is stale - drop it, or every retry in this
-      // window is refused and BOOT would accept the old code
-      if (cfmPending && !memcmp(cfmBda, param->auth_cmpl.bda, ESP_BD_ADDR_LEN)) cfmPending = false;
       authDone = true;
       LOG("[bt] gap: auth complete '%s' status %d\n", authName, (int)param->auth_cmpl.stat);
       break;
@@ -145,59 +113,42 @@ static void gapEvent(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param) 
 // ---- public -----------------------------------------------------------------
 void btBegin() {
   Bt.register_callback(sppEvent);
-  Bt.enableSSP();                   // IO capability "display + yes/no" -> numeric comparison
   uint32_t heap = ESP.getFreeHeap();
   if (!Bt.begin(BT_NAME)) { LOG("[bt] begin FAILED (free heap %u)\n", (unsigned)heap); return; }
   esp_bt_gap_register_callback(gapEvent);
-  setDiscoverable(false);
-  LOG("[bt] '%s' up, hidden, %d paired (free heap %u -> %u)\n", BT_NAME, btBondCount(),
+  esp_bt_io_cap_t iocap = ESP_BT_IO_CAP_NONE;    // no display, no keys -> "Just Works"
+  esp_bt_gap_set_security_param(ESP_BT_SP_IOCAP_MODE, &iocap, sizeof iocap);
+  setVisible();
+  bondsSeen = btBondCount();
+  LOG("[bt] '%s' up, open (Just Works), %d paired (free heap %u -> %u)\n", BT_NAME, bondsSeen,
       (unsigned)heap, (unsigned)ESP.getFreeHeap());
 }
 
 void btTick() {
   if (openPending) {
     openPending = false;
-    int b = bondState(openBda);
-    if (b == 0) {                   // never paired with us: drop it
-      logMac("rejected unpaired", openBda);
-      esp_spp_disconnect(openHandle);
-    } else {                        // paired - or lookup failed: don't lock out a real client
-      if (b < 0) logMac("bond lookup failed, accepting", openBda);
-      clientHandle = openHandle;
-      mountDrainRx();               // start the session clean
-      xlateReset();
-      btConnected = true;
-      logMac("connected", openBda);
-      LOG("[bt] client protocol: %s\n", xlateModeName(xlateMode()));
-    }
-  }
-  if (pairOpen && (int32_t)(millis() - pairUntil) >= 0) {
-    btPairStop();
-    setMsg("Pairing window closed", C_LBL, 3000);
+    clientHandle = openHandle;
+    mountDrainRx();                 // start the session clean
+    xlateReset();
+    btConnected = true;
+    logMac("connected", openBda);
+    LOG("[bt] client protocol: %s\n", xlateModeName(xlateMode()));
   }
   if (authDone) {
     authDone = false;
-    // A new pairing is an auth that completes after the user accepted its code.
-    // Any other successful auth used a stored link key: Android does one of those
-    // right before it starts the real pairing, so it must not close the window.
-    bool viaCode = codeAccepted && !memcmp(acceptedBda, authBda, ESP_BD_ADDR_LEN);
     char k[13]; macKey(authBda, k);
     if (authOk) {
       Preferences p;
       if (p.begin("btnames", false)) { p.putString(k, authName[0] ? authName : ""); p.end(); }
-      if (viaCode) {
-        codeAccepted = false;
+      int n = btBondCount();
+      if (n > bondsSeen) {          // a new bond, not a reconnect with a stored key
         LOG("[bt] paired '%s' (%s)\n", authName, k);
         char m[40]; snprintf(m, sizeof m, "Paired: %.24s", authName[0] ? authName : k);
         setMsg(m, C_OK, 4000);
-        if (pairOpen) btPairStop(); // one device per window
-      } else LOG("[bt] authenticated '%s' (%s) with a stored key\n", authName, k);
-    } else {
-      if (viaCode) codeAccepted = false;
-      if (pairOpen) {
-        LOG("[bt] pairing failed\n");
-        setMsg("Pairing failed - try again", C_BAD, 4000);
       }
+      bondsSeen = n;
+    } else {
+      LOG("[bt] pairing with %s failed\n", k);
     }
     bondSerial++;
   }
@@ -231,37 +182,6 @@ void btWrite(const uint8_t *buf, size_t n) {
   if (btConnected) Bt.write(buf, n);
 }
 
-void btPairStart(uint32_t ms) {
-  pairUntil = millis() + ms;
-  codeAccepted = false;
-  pairOpen = true;
-  setDiscoverable(true);
-  LOG("[bt] pairing window open %lus\n", (unsigned long)(ms / 1000));
-}
-
-void btPairStop() {
-  if (cfmPending) { esp_bt_gap_ssp_confirm_reply(cfmBda, false); cfmPending = false; }
-  pairOpen = false;
-  setDiscoverable(false);
-  LOG("[bt] hidden\n");
-}
-
-bool     btPairing()    { return pairOpen; }
-uint32_t btPairLeftMs() { return pairOpen ? (uint32_t)max<int32_t>(0, pairUntil - millis()) : 0; }
-
-bool btConfirmPending(uint32_t *code) {
-  if (cfmPending && code) *code = cfmCode;
-  return cfmPending;
-}
-
-void btConfirmReply(bool accept) {
-  if (!cfmPending) return;
-  if (accept) { memcpy(acceptedBda, cfmBda, ESP_BD_ADDR_LEN); codeAccepted = true; }   // before the reply
-  esp_bt_gap_ssp_confirm_reply(cfmBda, accept);
-  cfmPending = false;
-  LOG("[bt] code %06lu %s\n", (unsigned long)cfmCode, accept ? "accepted" : "rejected");
-}
-
 int btBondCount() {
   int n = esp_bt_gap_get_bond_device_num();
   return n < 0 ? 0 : n;
@@ -293,6 +213,7 @@ bool btBondForget(int i) {
   uint8_t mac[6]; char nm[4];
   if (!btBondGet(i, mac, nm, sizeof nm)) return false;
   forget(mac);
+  bondsSeen = btBondCount();
   bondSerial++;
   return true;
 }
@@ -303,6 +224,7 @@ void btBondForgetAll() {
   for (int i = 0; i < cnt; i++) forget(list[i]);
   Preferences p;
   if (p.begin("btnames", false)) { p.clear(); p.end(); }
+  bondsSeen = 0;
   bondSerial++;
 }
 

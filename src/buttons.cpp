@@ -90,3 +90,5 @@ BtnEvent buttonsGet() {
 }
 
 bool buttonsAnyDown() { return anyDown; }
+
+void buttonsInject(BtnEvent e) { post(e); }

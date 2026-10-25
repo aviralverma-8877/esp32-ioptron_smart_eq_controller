@@ -53,8 +53,20 @@ void setup() {
 #if defined(DEBUG_LOG) && DEBUG_LOG
 static bool stateLog = true;
 
+static void listBonds() {
+  int n = btBondCount();
+  LOG("[cons] %d paired device(s)\n", n);
+  for (int i = 0; i < n; i++) {
+    uint8_t m[6]; char nm[24];
+    if (btBondGet(i, m, nm, sizeof nm))
+      LOG("[cons]  %d: %02X:%02X:%02X:%02X:%02X:%02X %s\n", i, m[0], m[1], m[2], m[3], m[4], m[5], nm);
+  }
+}
+
 // USB debug console: a line starting with ':' (e.g. ":GAC#") goes to the mount
 // as-is and the reply is printed; "." toggles the [state] line. Idle only.
+// Every command is echoed into the log and brings up the TFT "Debug log"
+// screen, so what the console does is visible on the device ("tft" leaves it).
 static void debugConsole() {
   static char line[48];
   static uint8_t n = 0;
@@ -63,10 +75,41 @@ static void debugConsole() {
     if (c != '\r' && c != '\n') { if (n < sizeof line - 1) line[n++] = c; continue; }
     if (!n) continue;
     line[n] = 0; n = 0;
+    if (!strcmp(line, "tft")) { uiShowDebug(!uiDebugShown()); continue; }
+    // screen-neutral commands: no echo, no switch to the log screen (filming the UI)
+    if (!strncmp(line, "shot", 4) && (!line[4] || line[4] == ' ' || line[4] == 'd')) {
+      bool d = line[4] == 'd';                                         // shotd: changed rows only
+      long hz = atol(line + 4 + d);                                    // optional SPI read clock
+      displayShot(d, hz > 0 ? hz : 10000000);
+      continue;
+    }
+    if (!strncmp(line, "baud ", 5)) {                                  // e.g. baud 921600
+      long b = atol(line + 5);
+      if (b >= 9600) { Serial.flush(); Serial.updateBaudRate(b); }
+      continue;
+    }
+    LOG("> %s\n", line);
+    if (!strncmp(line, "btn ", 4)) {                                   // drives the current screen
+      static const struct { const char *k; BtnEvent e; } keys[] = {
+        { "a", EV_UP }, { "b", EV_DOWN }, { "sel", EV_SEL }, { "back", EV_BACK },
+        { "a+", EV_UP_REP }, { "b+", EV_DOWN_REP } };
+      bool ok = false;
+      for (auto &k : keys) if (!strcmp(line + 4, k.k)) { buttonsInject(k.e); ok = true; }
+      if (!ok) LOG("[cons] btn a|b|sel|back|a+|b+  (A up, B down, BOOT short/hold, held A/B)\n");
+      continue;
+    }
+    uiShowDebug(true);
     if (!strcmp(line, ".")) { stateLog = !stateLog; continue; }
-    if (!strcmp(line, "pair"))   { btPairStart(120000); continue; }
-    if (!strcmp(line, "unpair")) { btPairStop(); continue; }
-    if (!strcmp(line, "accept")) { btConfirmReply(true); continue; }    // = BOOT on the code dialog
+    if (!strcmp(line, "bonds"))  { listBonds(); continue; }
+    if (!strncmp(line, "forget", 6)) {                                 // forget <n> | forget all
+      const char *a = line + 6;
+      while (*a == ' ') a++;
+      if (!strcmp(a, "all")) btBondForgetAll();
+      else if (*a >= '0' && *a <= '9') { if (!btBondForget(atoi(a))) LOG("[cons] no device %s\n", a); }
+      else LOG("[cons] forget <n|all> - see 'bonds'\n");
+      listBonds();
+      continue;
+    }
     if (!strcmp(line, "trace")) {                                      // log client commands + replies
       xlateSetTrace(!xlateTrace());
       LOG("[cons] translator trace %s\n", xlateTrace() ? "ON" : "off");
@@ -81,7 +124,9 @@ static void debugConsole() {
       continue;
     }
     if (line[0] != ':') {
-      LOG("[cons] ':cmd#' -> mount, '.' toggles [state], proto [ioptron|lx200|nexstar]\n");
+      LOG("[cons] ':cmd#' -> mount, '.' [state] on/off, proto [ioptron|lx200|nexstar], trace\n");
+      LOG("[cons] bonds, forget <n|all>, tft (log screen)\n");
+      LOG("[cons] btn a|b|sel|back|a+|b+ (press), shot / shotd (screen dump, delta), baud <n>\n");
       continue;
     }
     if (btConnected) { LOG("[cons] BT client active - not sent\n"); continue; }

@@ -47,6 +47,7 @@
 #include "bt_bridge.h"
 #include "proto.h"
 #include "xlate.h"
+#include "debuglog.h"
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
@@ -61,7 +62,7 @@ static const uint32_t SLEW_MAX_MS = 240000UL, ALT_OBJ_MS = 5000, ALT_LIST_MS = 2
 static const uint32_t STOP_IGNORE_MS = 800;     // drop the events of the press that stopped a slew
 static uint32_t ignoreUntil = 0;
 
-enum Screen { SC_STATUS, SC_MENU, SC_LIST, SC_OBJECT, SC_BT };
+enum Screen { SC_STATUS, SC_MENU, SC_LIST, SC_OBJECT, SC_BT, SC_DEBUG };
 static Screen scr = SC_STATUS;
 
 // ---- drawing helpers ---------------------------------------------------------
@@ -155,11 +156,12 @@ static void statusEvent(BtnEvent e) {
 }
 
 // ---- MENU ---------------------------------------------------------------------
-static const int MENU_N = 10, MENU_Y = 30, MENU_H = 19;
+static const int MENU_N = 11, MENU_Y = 30, MENU_H = 17;
 static const int MENU_ZERO = 5;                   // "Go to zero position" row
 static const int MENU_TZ = 6;                     // "Time zone" row (edited in place)
 static const int MENU_BT = 7;                     // "Bluetooth" -> pairing screen
 static const int MENU_RESET = 8;                  // "Factory reset" (BOOT twice)
+static const int MENU_DEBUG = 9;                  // "Debug log" -> live log screen
 static bool     resetArmed = false;
 static uint32_t resetArmMs = 0;
 static int menuSel = 0;
@@ -202,11 +204,12 @@ static void menuRow(int i) {
       if (resetArmed) { snprintf(b, sizeof b, "Reset: BOOT again=ERASE"); fg = C_BAD; }
       else              snprintf(b, sizeof b, "Factory reset");
       break;
+    case MENU_DEBUG: snprintf(b, sizeof b, "Debug log"); break;
     default: snprintf(b, sizeof b, "Back"); break;
   }
-  tft.fillRect(0, y, SCR_W, MENU_H - 2, bg);
-  if (sel) tft.fillRect(0, y, 4, MENU_H - 2, C_HEAD);     // focus bar
-  txt(14, y + 1, b, fg, 2, bg);
+  tft.fillRect(0, y, SCR_W, MENU_H - 1, bg);
+  if (sel) tft.fillRect(0, y, 4, MENU_H - 1, C_HEAD);     // focus bar
+  txt(14, y, b, fg, 2, bg);
 }
 
 static void zeroDisarm() {
@@ -228,7 +231,6 @@ static void factoryReset() {
   titleBar("Factory reset");
   txt(14, 60, "Erasing settings and", C_VAL, 2);
   txt(14, 84, "paired devices...", C_VAL, 2);
-  if (btPairing()) btPairStop();
   btBondForgetAll();
   gpsSyncFactoryReset();
   txt(14, 124, "Restarting", C_WARN, 2);
@@ -278,6 +280,7 @@ static void menuEnter() {
 
 static void listEnter(SkyCat c);
 static void btEnter();
+static void dbgEnter(Screen back);
 
 // TZ edit: steps of 15 min between UTC-12 and UTC+14, "Auto" past either end
 static void tzEvent(BtnEvent e) {
@@ -348,6 +351,7 @@ static void menuEvent(BtnEvent e) {
           menuRow(MENU_TZ);
           break;
         case MENU_BT: btEnter(); break;
+        case MENU_DEBUG: dbgEnter(SC_MENU); break;
         case MENU_RESET:
           if (!resetArmed) { resetArmed = true; resetArmMs = millis(); menuRow(MENU_RESET); }
           else factoryReset();
@@ -729,20 +733,19 @@ static void objTick(bool force) {
 }
 
 // ---- BLUETOOTH ----------------------------------------------------------------
-// Rows: Pair new device / Protocol / up to 5 paired devices / Forget all / Back.
-// The device is hidden unless the pairing window is open; leaving the screen
-// closes it. Protocol (BOOT cycles iOptron -> LX200 -> NexStar) is what a
+// Rows: Protocol / up to 6 paired devices / Forget all / Back. The controller is
+// always visible and pairs without a code (bt_bridge.h), so there is nothing to
+// start here. Protocol (BOOT cycles iOptron -> LX200 -> NexStar) is what a
 // Bluetooth client speaks: iOptron = transparent, else translated (xlate.h).
-static const int BTS_Y = 30, BTS_H = 20, BT_MAXDEV = 5;
-static const uint32_t PAIR_MS = 120000;
+static const int BTS_Y = 30, BTS_H = 20, BT_MAXDEV = 6;
 static int  btSel = 0, btDev = 0, btArmed = -1;   // btArmed: row awaiting its 2nd BOOT
-static uint32_t btArmMs = 0, btSerialSeen = 0, btLeftSeen = 0;
-static bool btCfmShown = false, btConnSeen = false;
+static uint32_t btArmMs = 0, btSerialSeen = 0;
+static bool btConnSeen = false;
 
-static const int BT_PROTO = 1;                    // row index of "Protocol"
-static int  btRowCount()   { return 2 + btDev + (btDev ? 1 : 0) + 1; }
-static bool btIsDev(int i) { return i >= 2 && i <= btDev + 1; }
-static bool btIsAll(int i) { return btDev && i == btDev + 2; }
+static const int BT_PROTO = 0;                    // row index of "Protocol"
+static int  btRowCount()   { return 1 + btDev + (btDev ? 1 : 0) + 1; }
+static bool btIsDev(int i) { return i >= 1 && i <= btDev; }
+static bool btIsAll(int i) { return btDev && i == btDev + 1; }
 
 static void btRow(int i) {
   char b[40];
@@ -750,18 +753,13 @@ static void btRow(int i) {
   bool sel = i == btSel;
   uint16_t bg = sel ? C_SEL : BG;
   int y = BTS_Y + i * BTS_H;
-  if (i == 0) {
-    if (btPairing()) {
-      snprintf(b, sizeof b, "Pairing... %lus", (unsigned long)((btPairLeftMs() + 999) / 1000));
-      fg = C_WARN;
-    } else snprintf(b, sizeof b, "Pair new device");
-  } else if (i == BT_PROTO) {
+  if (i == BT_PROTO) {
     snprintf(b, sizeof b, "Protocol: %s", xlateModeName(xlateMode()));
     if (xlateMode() != XL_NATIVE) fg = C_HEAD;
   } else if (btIsDev(i)) {
     uint8_t mac[6]; char nm[24];
     if (btArmed == i) { snprintf(b, sizeof b, "Forget? BOOT again"); fg = C_WARN; }
-    else if (btBondGet(i - 2, mac, nm, sizeof nm)) snprintf(b, sizeof b, "%.23s", nm);
+    else if (btBondGet(i - 1, mac, nm, sizeof nm)) snprintf(b, sizeof b, "%.23s", nm);
     else b[0] = 0;
   } else if (btIsAll(i)) {
     if (btArmed == i) { snprintf(b, sizeof b, "Forget ALL? BOOT again"); fg = C_WARN; }
@@ -775,10 +773,9 @@ static void btRow(int i) {
 static void btStatusLine() {
   char b[56], p[56];
   uint16_t c = C_LBL;
-  if (btConnected)      { snprintf(b, sizeof b, "Connected - %s %s", xlateModeName(xlateMode()),
-                                   xlateMode() == XL_NATIVE ? "bridge active" : "translation"); c = C_WARN; }
-  else if (btPairing()) { snprintf(b, sizeof b, "Visible as %s - pair from the phone", BT_NAME); c = C_WARN; }
-  else snprintf(b, sizeof b, "Hidden - only paired devices can connect");
+  if (btConnected) { snprintf(b, sizeof b, "Connected - %s %s", xlateModeName(xlateMode()),
+                              xlateMode() == XL_NATIVE ? "bridge active" : "translation"); c = C_WARN; }
+  else snprintf(b, sizeof b, "Visible as %s - pair from any phone/PC", BT_NAME);
   snprintf(p, sizeof p, "%-52.52s", b);
   txt(4, 214, p, c, 1);
   btConnSeen = btConnected;
@@ -794,34 +791,11 @@ static void btDrawAll() {
   btStatusLine();
   footHint("A:up  B:down  BOOT:select  hold BOOT:back");
   btSerialSeen = btBondSerial();
-  btCfmShown = false;
-}
-
-static void btDrawConfirm(uint32_t code) {
-  tft.fillRect(10, 56, 300, 120, C_SEL);
-  tft.drawRect(10, 56, 300, 120, C_HEAD);
-  txt(24, 66, "Pairing request", C_HEAD, 2, C_SEL);
-  char b[12];
-  snprintf(b, sizeof b, "%06lu", (unsigned long)code);
-  txt((SCR_W - 6 * 18) / 2, 96, b, C_VAL, 3, C_SEL);
-  txt(24, 132, "Same code shown on the phone?", C_VAL, 1, C_SEL);
-  txt(24, 150, "BOOT: accept    hold BOOT: reject", C_WARN, 1, C_SEL);
-  btCfmShown = true;
 }
 
 static void btEnter() { scr = SC_BT; btSel = 0; btDrawAll(); }
 
-static void btLeave() {
-  if (btPairing()) btPairStop();
-  menuEnter();
-}
-
 static void btEvent(BtnEvent e) {
-  if (btConfirmPending(nullptr)) {               // only the code dialog listens
-    if (e == EV_SEL) btConfirmReply(true);
-    else if (e == EV_BACK) btConfirmReply(false);
-    return;                                       // btScreenTick redraws
-  }
   int o = btSel, n = btRowCount();
   switch (e) {
     case EV_UP: case EV_UP_REP: case EV_DOWN: case EV_DOWN_REP: {
@@ -832,10 +806,7 @@ static void btEvent(BtnEvent e) {
       break;
     }
     case EV_SEL:
-      if (btSel == 0) {
-        if (btPairing()) btPairStop(); else btPairStart(PAIR_MS);
-        btRow(0); btStatusLine();
-      } else if (btSel == BT_PROTO) {
+      if (btSel == BT_PROTO) {
         protoCycle();
         btRow(BT_PROTO); btStatusLine();
       } else if (btIsDev(btSel) || btIsAll(btSel)) {
@@ -845,28 +816,109 @@ static void btEvent(BtnEvent e) {
           btRow(btSel);
         } else {                                  // bond serial bump -> full redraw
           btArmed = -1;
-          if (btIsDev(btSel)) btBondForget(btSel - 2); else btBondForgetAll();
+          if (btIsDev(btSel)) btBondForget(btSel - 1); else btBondForgetAll();
           setMsg("Bluetooth device forgotten", C_OK, 3000);
         }
-      } else btLeave();
+      } else menuEnter();
       break;
     case EV_BACK:
       if (btArmed >= 0) { int a = btArmed; btArmed = -1; btRow(a); }
-      else btLeave();
+      else menuEnter();
       break;
     default: break;
   }
 }
 
 static void btScreenTick() {
-  uint32_t code;
-  if (btConfirmPending(&code)) { if (!btCfmShown) btDrawConfirm(code); return; }
-  if (btCfmShown || btBondSerial() != btSerialSeen) { btDrawAll(); return; }
+  if (btBondSerial() != btSerialSeen) { btDrawAll(); return; }
   if (btArmed >= 0 && millis() - btArmMs > CONFIRM_MS) { int a = btArmed; btArmed = -1; btRow(a); }
-  uint32_t left = (btPairLeftMs() + 999) / 1000;
-  if (left != btLeftSeen) { btLeftSeen = left; btRow(0); btStatusLine(); }
   if (btConnected != btConnSeen) btStatusLine();
 }
+
+// ---- DEBUG LOG ------------------------------------------------------------------
+// The LOG() output (debuglog.h) as it happens: 19 lines, newest at the bottom,
+// coloured by source. A = older, B = newer (scrolled = paused), BOOT = live,
+// hold BOOT = back.
+static const int DBG_Y = 30, DBG_ROWS = 19;
+static Screen   dbgBack = SC_STATUS;
+static int      dbgOff = 0;                       // lines scrolled back from the newest
+static uint32_t dbgSeen = 0, dbgMs = 0;
+static char     dbgHdr[40];
+
+static uint16_t dbgColor(const char *s) {
+  if (strstr(s, "FAIL") || strstr(s, "REJECT") || strstr(s, "rejected") || strstr(s, "failed"))
+    return C_BAD;
+  if (s[0] == '>' || !strncmp(s, "[cons]", 6)) return C_WARN;
+  if (!strncmp(s, "[bt]", 4))  return C_HEAD;
+  if (!strncmp(s, "[msg]", 5)) return C_OK;
+  if (!strncmp(s, "[xl]", 4))  return C_VAL;
+  return C_LBL;
+}
+
+static void dbgHeader() {                         // right of the title: BT / mount state
+  char b[40];
+  if (dbgOff) snprintf(b, sizeof b, "PAUSED -%d", dbgOff);
+  else snprintf(b, sizeof b, "BT %s %d  M %s", btConnected ? "conn" : "idle", btBondCount(),
+                linkUp ? "ok" : "--");
+  char p[40];
+  snprintf(p, sizeof p, "%21.21s", b);
+  if (!strcmp(p, dbgHdr)) return;
+  strncpy(dbgHdr, p, sizeof dbgHdr - 1);
+  txt(SCR_W - 4 - 21 * 6, 10, p, dbgOff ? C_WARN : C_LBL, 1);
+}
+
+static void dbgDrawLines() {
+  char ln[DBG_COLS + 1], p[DBG_COLS + 1];
+  for (int r = 0; r < DBG_ROWS; r++) {
+    int back = dbgOff + DBG_ROWS - 1 - r;
+    if (!dbgLine(back, ln, sizeof ln)) ln[0] = 0;
+    snprintf(p, sizeof p, "%-*.*s", DBG_COLS, DBG_COLS, ln);
+    txt(0, DBG_Y + r * 10, p, dbgColor(ln), 1);
+  }
+  dbgSeen = dbgSeq(); dbgMs = millis();
+}
+
+static void dbgDrawAll() {
+  titleBar("Debug log");
+  dbgHdr[0] = 0;
+  dbgHeader();
+  dbgDrawLines();
+  footHint("A:older  B:newer  BOOT:live  hold BOOT:back");
+}
+
+static void dbgEnter(Screen back) { scr = SC_DEBUG; dbgBack = back; dbgOff = 0; dbgDrawAll(); }
+
+static void dbgEvent(BtnEvent e) {
+  int o = dbgOff;
+  switch (e) {
+    case EV_UP: case EV_UP_REP:     dbgOff += e == EV_UP ? 1 : DBG_ROWS; break;
+    case EV_DOWN: case EV_DOWN_REP: dbgOff -= e == EV_DOWN ? 1 : DBG_ROWS; break;
+    case EV_SEL:  dbgOff = 0; break;
+    case EV_BACK:
+      if (dbgBack == SC_MENU) menuEnter(); else statusEnter();
+      return;
+    default: break;
+  }
+  int maxOff = (int)min<uint32_t>(dbgSeq(), DBG_RING) - DBG_ROWS;
+  dbgOff = constrain(dbgOff, 0, max(0, maxOff));
+  if (dbgOff != o) { dbgHeader(); dbgDrawLines(); }
+}
+
+static void dbgTick(bool force) {
+  dbgHeader();
+  if (force || (!dbgOff && dbgSeq() != dbgSeen && millis() - dbgMs >= 150)) dbgDrawLines();
+}
+
+void uiShowDebug(bool on) {
+  if (on && scr != SC_DEBUG) {
+    if (scr == SC_OBJECT && bs == BS_SLEW) return; // keep the STOP button up
+    dbgEnter(scr == SC_STATUS ? SC_STATUS : SC_MENU);
+  } else if (!on && scr == SC_DEBUG) {
+    if (dbgBack == SC_MENU) menuEnter(); else statusEnter();
+  }
+}
+
+bool uiDebugShown() { return scr == SC_DEBUG; }
 
 // ---- entry points ---------------------------------------------------------------
 void uiBegin() {
@@ -914,6 +966,10 @@ void uiTick() {
     case SC_BT:
       if (e != EV_NONE) btEvent(e);
       if (scr == SC_BT) btScreenTick();
+      break;
+    case SC_DEBUG:
+      if (e != EV_NONE) dbgEvent(e);
+      if (scr == SC_DEBUG) dbgTick(false);
       break;
   }
 }

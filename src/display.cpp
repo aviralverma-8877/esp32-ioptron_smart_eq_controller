@@ -10,6 +10,7 @@
 #include "sky.h"
 #include "xlate.h"
 #include <SPI.h>
+#include <esp32/rom/crc.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
 #include <string.h>
@@ -164,6 +165,52 @@ void displayStatusEnter() {
   hdrCache[0] = gpsCache[0] = fixCache[0] = ftrCache[0] = 0;
   staticLayout();
   render();
+}
+
+// Screenshot over the USB console: read the panel's own RAM back (RAMRD, 18-bit
+// pixels, one burst for the whole screen), print each row run-length encoded
+// as RGB565 hex:
+//   SHOT 320 240 [D] / R<y> <rgb565>[*<count>] ... / SHOTEND <millis>
+// tools/tftshot.py turns that into a PNG. Delta (D): only rows that changed
+// since the previous shot are sent - fast enough to film the UI ("baud 921600").
+// The read starts with one dummy byte; needs the LCD's SDO wired to MISO.
+void displayShot(bool delta, uint32_t hz) {
+  const int W = 320, H = 240;
+  static uint8_t row[W * 3];
+  static uint32_t rowCrc[H];
+  Serial.printf("\nSHOT %d %d%s\n", W, H, delta ? " D" : "");
+  tft.startWrite();
+  tft.setAddrWindow(0, 0, W, H);
+  tft.endWrite();
+  SPI.beginTransaction(SPISettings(hz, MSBFIRST, SPI_MODE0));
+  digitalWrite(TFT_CS, LOW);
+  digitalWrite(TFT_DC, LOW);
+  SPI.transfer(0x2E);                              // RAMRD
+  digitalWrite(TFT_DC, HIGH);
+  SPI.transfer(0);                                 // dummy byte
+  for (int y = 0; y < H; y++) {
+    memset(row, 0, sizeof row);
+    SPI.transfer(row, sizeof row);                 // the panel keeps streaming between rows
+    uint32_t crc = crc32_le(0, row, sizeof row);
+    if (delta && crc == rowCrc[y]) continue;
+    rowCrc[y] = crc;
+    Serial.printf("R%d", y);
+    uint16_t run = 0; int cnt = 0;
+    for (int x = 0; x <= W; x++) {
+      uint16_t c = 0;
+      if (x < W) {
+        const uint8_t *p = row + x * 3;
+        c = (p[0] & 0xF8) << 8 | (p[1] & 0xFC) << 3 | p[2] >> 3;
+      }
+      if (x < W && cnt && c == run) { cnt++; continue; }
+      if (cnt) { if (cnt > 1) Serial.printf(" %04x*%d", run, cnt); else Serial.printf(" %04x", run); }
+      run = c; cnt = 1;
+    }
+    Serial.print('\n');
+  }
+  digitalWrite(TFT_CS, HIGH);
+  SPI.endTransaction();
+  Serial.printf("SHOTEND %lu\n", (unsigned long)millis());
 }
 
 void displayTick() {
