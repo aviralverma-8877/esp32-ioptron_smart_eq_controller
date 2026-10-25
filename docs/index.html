@@ -96,18 +96,21 @@
        visible, pairs without a code, nothing to press on the controller. Anyone in Bluetooth range
        can connect; one device at a time. Pairings are remembered across reboots and updates.</p>
     <h2 style="margin-top:1rem">Pair a phone or PC</h2>
-    <ol>
-      <li>On the phone / PC: add Bluetooth device <b>SmartEQ-RJ9</b> and tap <b>Pair</b>.</li>
-      <li>In Stellarium Mobile: tap <b>Select</b> in the telescope panel, wait for the scan and
-          pick SmartEQ-RJ9.</li>
-    </ol>
+    <ul>
+      <li><b>Android, Stellarium Mobile:</b> tap <b>Select</b> in the telescope panel, wait for the
+          scan, pick SmartEQ-RJ9 and tap <b>Pair</b>. Other apps: add SmartEQ-RJ9 in Android's
+          Bluetooth settings.</li>
+      <li><b>Windows:</b> <i>Settings → Bluetooth &amp; devices → Add device → Bluetooth →
+          SmartEQ-RJ9</i> — “Your device is ready to go”, no code.</li>
+    </ul>
     <p class="muted"><b>“Connection to service failed” on Android?</b> The phone remembers an old
        pairing the controller no longer has, and Android hides its Pair prompt in a notification.
        Tap <b>Select</b> to scan again, pick SmartEQ-RJ9 and tap <b>Pair</b>.</p>
-    <p class="muted">The same screen lists paired devices — select one twice to forget it.
-       Windows creates two COM ports per pairing: use the <b>Outgoing</b> one
+    <p class="muted">The controller's Bluetooth screen lists paired devices — select one twice to
+       forget it. Windows creates two COM ports per pairing: use the <b>Outgoing</b> one
        (<i>Settings → Bluetooth &amp; devices → More Bluetooth settings → COM Ports</i>).
-       The Incoming port hangs any program that opens it.</p>
+       The Incoming port hangs any program that opens it (Stellarium shows “Not Responding”).
+       <b>The numbers can change each time you pair again</b> — check this tab after re-pairing.</p>
     <h2>Protocol — LX200 / NexStar translation</h2>
     <p>The mount speaks the iOptron command language, which most apps have no built-in driver
        for. The controller can translate: <b>Menu → Bluetooth → Protocol</b> (BOOT cycles it;
@@ -130,15 +133,18 @@
 
     <h2>Stellarium — direct (recommended)</h2>
     <ol>
-      <li>On the controller set <b>Protocol: LX200</b>.</li>
-      <li>Stellarium → <b>Telescope Control</b> (Ctrl+0) → add → <i>Stellarium, directly through
-          a serial port</i>.</li>
-      <li>Serial port: the <b>Outgoing</b> Bluetooth COM port · device model
-          <b>Meade LX200 (compatible)</b> · coordinate system <b>JNow</b>.</li>
-      <li>Select an object and press <b>Ctrl+1</b> to slew (Ctrl+3 sync, Ctrl+5 abort).</li>
+      <li>On the controller set <b>Protocol: NexStar</b> (or LX200).</li>
+      <li>Stellarium → <b>Telescope Control</b> (Ctrl+0) → <i>Configure telescopes</i> → <b>+</b> →
+          <i>Stellarium, directly through a serial port</i>.</li>
+      <li>Name it, coordinate system <b>JNow</b>, tick <i>Start/connect at startup</i>. Serial port: the
+          <b>Outgoing</b> Bluetooth COM port (the box is editable — type e.g. <code>COM16</code>) ·
+          device model <b>Celestron NexStar (compatible)</b> (or <b>Meade LX200 (compatible)</b> for
+          Protocol LX200).</li>
+      <li>OK → <b>Start</b>: the status turns <i>Connected</i>.</li>
+      <li>Select an object (F3 to search) and press <b>Ctrl+1</b> to slew, or <i>Current object</i> →
+          <i>Slew</i> in the slew window (Ctrl+3 sync, Ctrl+5 abort).</li>
     </ol>
-    <p class="muted">Protocol <b>NexStar</b> with <i>Celestron NexStar (compatible)</i> works the same
-       way (no sync in Stellarium's NexStar driver). <b>Stellarium Mobile</b> on Android: tested
+    <p class="muted">Stellarium's NexStar driver has no sync; LX200 has. <b>Stellarium Mobile</b> on Android: tested
        with Protocol <b>NexStar</b> — pick a Celestron NexStar telescope over Bluetooth →
        SmartEQ-RJ9 (GoTo, direction buttons and stop work; turn on the <i>Time</i> / <i>Location</i>
        <b>Sync</b> switches to set the mount from the phone — it then shows <i>Time: correct</i>). SkySafari on <b>Android</b>: Settings →
@@ -201,8 +207,9 @@
        from the Sun. GoTo is disabled while a Bluetooth app is connected.
        The menu also has <b>Sync GPS now</b>, <b>Stop mount</b>, <b>Go to zero position</b>
        (select twice to confirm), <b>Time zone</b> (Auto from GPS, or A/B in 15-minute steps),
-       <b>Bluetooth</b> (pair / forget devices, client protocol) and <b>Factory reset</b> (select twice: forgets
-       paired devices and settings, then reboots). Don't hold BOOT while powering on or resetting.</p>
+       <b>Bluetooth</b> (client protocol, list / forget paired devices), <b>Factory reset</b> (select twice:
+       forgets paired devices and settings, then reboots) and <b>Debug log</b> (live log output on the
+       screen; A / B scroll, BOOT = live). Don't hold BOOT while powering on or resetting.</p>
     <p class="muted">Credits: catalog from OpenNGC (CC-BY-SA-4.0) and SIMBAD/CDS; deep-sky images
        from DSS2 (STScI) via CDS hips2fits; planet images NASA/JPL/ESA (public domain), Moon by
        Gregory H. Revera (CC-BY-SA-3.0).</p>

@@ -29,7 +29,8 @@ Bridge + polling run at **9600 8-N-1** (`BRIDGE_BAUD`), the iOptron **legacy
 command set**. Verified end-to-end against an **iOptron SmartEQ Pro**
 (`:MountInfo#` → `0011`, firmware `190422`, motors `161028`): queries,
 `:SG/:SDS/:SC/:SL` time-set and `:Sg/:St` site-set all confirmed, and
-Stellarium → ASCOM → iOptron Commander → Bluetooth GoTo + tracking verified.
+Bluetooth GoTo + tracking verified from Stellarium desktop (directly, Protocol
+NexStar, and via ASCOM → iOptron Commander) and Stellarium Mobile on Android.
 
 ## Behaviour
 
@@ -129,6 +130,7 @@ catalog rows need one):
 | Time zone | BOOT to edit, A/B = ±15 min or **Auto** (from GPS position), BOOT saves (NVS) and re-syncs, hold BOOT cancels |
 | Bluetooth (N paired) | **Protocol** (iOptron / LX200 / NexStar), list / forget paired devices — see [Pairing](#pairing) |
 | Factory reset | select twice: forgets all paired Bluetooth devices, clears saved settings, reboots (the mount's own settings are untouched) |
+| Debug log | live log output on the screen (A / B scroll back and forth, BOOT = live, hold BOOT = back) — see [Debug console](#debug-console-usb-115200-baud) |
 
 **Object page** — left: thumbnail + name; right: object info with a suggested
 scope (focal length to frame it on an APS-C sensor), camera/filter and exposure,
@@ -192,10 +194,14 @@ can therefore connect and move the mount. Only one device is connected at a time
 Pairings live in the ESP32's NVS, so they survive reboots and re-flashing (but
 not *Factory reset* or an *Erase device* flash).
 
-1. On the phone / PC: add Bluetooth device **SmartEQ-RJ9** and confirm *Pair*.
-   In **Stellarium Mobile**, tap **Select** in the telescope panel, wait for the
-   scan and pick SmartEQ-RJ9 — always pair from a fresh scan (see below).
-2. Open the serial port it creates at **9600 8-N-1**.
+1. **Android:** in **Stellarium Mobile**, tap **Select** in the telescope panel,
+   wait for the scan, pick SmartEQ-RJ9 and tap **Pair** — always pair from a
+   fresh scan (see below). Other apps: add Bluetooth device SmartEQ-RJ9 in
+   Android's Bluetooth settings.
+2. **Windows:** *Settings → Bluetooth & devices → Add device → Bluetooth →
+   SmartEQ-RJ9* — "Your device is ready to go", no code. Then note the
+   **Outgoing** COM port (below).
+3. Open that serial port at **9600 8-N-1**.
 
 The Bluetooth screen lists the paired devices; select one twice to forget it, or
 use *Forget all devices*.
@@ -211,7 +217,10 @@ SmartEQ-RJ9 and tap **Pair**.
 device ID contains the controller's Bluetooth address; *Settings → Bluetooth &
 devices → More Bluetooth settings → COM Ports*). The **Incoming** port blocks
 forever when opened — pointing iOptron Commander at it makes Commander hang on
-start; you can remove the incoming port there.
+start, and Stellarium freezes ("Not Responding"); you can remove the incoming
+port there. **The numbers can change every time you pair again** (e.g. Outgoing
+COM16 one time, COM8 the next), so check this tab after re-pairing and update
+the port in Stellarium / Commander.
 
 ### Stellarium (Windows, via ASCOM - Protocol iOptron)
 
@@ -257,8 +266,12 @@ on-device menu, catalog, GPS sync and TRACK work the same in every mode.
 Control (Ctrl+0) → *Add* → *Telescope controlled by: Stellarium, directly
 through a serial port* → serial port = the **Outgoing** Bluetooth COM port,
 device model *Meade LX200 (compatible)* (Protocol **LX200**) or *Celestron
-NexStar (compatible)* (Protocol **NexStar**), coordinate system **JNow**.
-Ctrl+1 GoTo · Ctrl+3 sync (LX200 only; Stellarium's NexStar driver has no sync) · Ctrl+5 abort.
+NexStar (compatible)* (Protocol **NexStar**), coordinate system **JNow**,
+tick *Start/connect at startup*. The serial-port box is editable — type the
+port (e.g. `COM16`) if the list picks the wrong one. OK → **Start**; the status
+turns *Connected*. Select an object (F3 to search) → Ctrl+1 GoTo, or use the
+*Slew telescope to* window (*Current object* → *Slew*) · Ctrl+3 sync (LX200
+only; Stellarium's NexStar driver has no sync) · Ctrl+5 abort.
 
 **Stellarium Mobile (Android):** tested with Protocol **NexStar** - pair the
 phone, pick a Celestron NexStar telescope over Bluetooth → *SmartEQ-RJ9*. GoTo,
@@ -311,11 +324,23 @@ Notes:
 
 ### Debug console (USB, 115200 baud)
 
-`:cmd#` lines are sent to the mount and the reply is printed (idle only);
-`.` toggles the `[state]` lines; `bonds` lists and `forget <n|all>` removes
-paired Bluetooth devices;
-`proto` shows and `proto ioptron|lx200|nexstar` sets the Bluetooth client protocol;
-`trace` toggles a log of every translated client command and reply.
+Everything logged here also goes to the **Debug log** screen on the TFT (menu
+→ *Debug log*), so the device can be debugged without a PC. Console commands
+are echoed into that log, and all except `btn`, `shot`, `baud` and `tft` also
+switch the screen to it (so button presses and screen dumps can drive and film
+the normal UI).
+
+| Command | Does |
+|---|---|
+| `:cmd#` | sent to the mount, reply printed (idle only) |
+| `.` | toggles the 3-second `[state]` lines |
+| `proto` / `proto ioptron\|lx200\|nexstar` | shows / sets the Bluetooth client protocol |
+| `trace` | log every translated client command and reply |
+| `bonds` / `forget <n\|all>` | list / remove paired Bluetooth devices |
+| `btn a\|b\|sel\|back\|a+\|b+` | press a button (A, B, BOOT short, BOOT held, A / B held) — drives the current screen |
+| `shot [hz]` / `shotd [hz]` | dump the TFT (whole screen / only rows changed since the last dump); `python tools/tftshot.py log.txt out.png` (or `--all frames/`) turns it into PNGs. Reads the panel back over SPI, max ~11 MHz |
+| `baud <n>` | switch the console baud rate (e.g. `baud 921600` for fast screen dumps) |
+| `tft` | show / leave the Debug log screen |
 
 ## iOptron replies decoded (SmartEQ Pro, protocol V1.00)
 
@@ -347,6 +372,7 @@ GoTo (verified against iOptron Commander on this mount): `:ST1#` tracking on,
 | File | Job |
 |---|---|
 | `src/config.h` | build-time config (pins/bauds), `LOG` macro, TFT colours |
+| `src/debuglog.*` | `LOG()` sink: USB console + line ring for the Debug log screen |
 | `src/message.*` | transient footer status line (`setMsg`) |
 | `src/mount.*` | RS-232 link: `askMount`, iOptron reply decoders, idle poll loop, link tracking |
 | `src/bt_bridge.*` | SPP endpoint + transparent byte pumping (or the translator); always-visible Just Works pairing, bond list (NVS) |
@@ -358,10 +384,11 @@ GoTo (verified against iOptron Commander on this mount): `:ST1#` tracking on,
 | `src/buttons.*` | 10 ms sampled buttons → up / down (+ hold-repeat) / select / back events |
 | `src/sky.*` | SD hot-plug, catalog, thumbnails, info text, precession + alt/az |
 | `src/ephem.*` | planets + Moon positions (JPL elements / Meeus), Sun for the 15° safety guard |
-| `src/ui.*` | screens: status → menu → object list → object page / TRACK; time zone, Bluetooth, factory reset |
+| `src/ui.*` | screens: status → menu → object list → object page / TRACK; time zone, Bluetooth, factory reset, Debug log |
 | `tools/sdcard/` | builds the SD content + `docs/sdcard/*.zip` |
 | `tools/xlate-test/` | host test of the translator against a mock mount |
 | `tools/scope-sim/` | NexStar hand-controller simulator on a PC serial port (see what an app sends) |
+| `tools/tftshot.py` | turns `shot` / `shotd` console dumps into PNG screenshots / frames |
 | `src/main.cpp` | `setup()` / `loop()` wiring only |
 | `scripts/merge_bin.py` | post-build: merged image + manifest for the web flasher |
 | `docs/` | GitHub Pages web flasher (`index.html`, `manifest.json`, `firmware/`) |
@@ -376,5 +403,7 @@ GoTo (verified against iOptron Commander on this mount): `:ST1#` tracking on,
 - Buttons are sampled by a 10 ms `esp_timer` into a queue, so a poll-blocked `loop()` can't miss a press (no GPIO36/39 interrupts - ESP32 erratum).
 - TFT redraws only changed fields — no flicker.
 - `huge_app.csv` partition (3 MB app, no OTA) — Bluedroid SPP is large.
-- The SPP server itself has no link security (`BluetoothSerial` doesn't expose
-  it); the paired-only check is by device address.
+- Bluetooth is deliberately open: SSP IO capability *NoInputNoOutput* (Just
+  Works, no MITM protection) and any device may open the SPP link. Only one
+  client is served at a time; while one is connected, GoTo from the
+  controller's own menu is disabled.
