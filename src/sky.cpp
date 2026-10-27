@@ -1,5 +1,6 @@
-// sky.cpp - SD-card sky database (hot-plug, catalog, info text, RGB565 thumbnails)
-// and the astronomy needed for GoTo: JD now, site, IAU 1976 precession, alt/az.
+// sky.cpp - sky database: catalog, info text, RGB565 thumbnails - on an SD card
+// (hot-plug) or on-chip LittleFS (SKY_STORAGE_LITTLEFS, always mounted) - plus
+// the astronomy needed for GoTo: JD now, site, IAU 1976 precession, alt/az.
 #include "sky.h"
 #include "ephem.h"
 #include "config.h"
@@ -10,10 +11,17 @@
 #include "timeutil.h"
 #include <SPI.h>
 #include <FS.h>
-#include <SD.h>
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
+
+#if defined(SKY_STORAGE_LITTLEFS)
+#include <LittleFS.h>
+#define SKY_FS LittleFS
+#else
+#include <SD.h>
+#define SKY_FS SD
+#endif
 
 static const char *CAT_PATH  = "/SMARTEQ/CATALOG.CSV";
 static const int   CAP       = 400;          // max objects held in RAM (~25 KB)
@@ -82,7 +90,7 @@ static void freeCatalog() {
 
 static bool loadCatalog() {
   freeCatalog();
-  File f = SD.open(CAT_PATH, FILE_READ);
+  File f = SKY_FS.open(CAT_PATH, FILE_READ);
   if (!f) return false;
   objs = (SkyObj *)malloc(sizeof(SkyObj) * CAP);
   for (int c = 0; c < CAT_COUNT; c++) idx[c] = (int16_t *)malloc(sizeof(int16_t) * CAP);
@@ -120,6 +128,27 @@ static bool loadCatalog() {
   return ready;
 }
 
+#if defined(SKY_STORAGE_LITTLEFS)
+// On-chip flash, always present - mounted once, no hot-plug. Partition built
+// by tools/littlefs/build_littlefs.py + `pio run -e esp32dev-littlefs -t uploadfs`.
+static bool tryMount() {
+  if (!LittleFS.begin(false)) {
+    if (lastErr != 1) LOG("[sky] LittleFS mount failed - flash the catalog data (uploadfs)\n");
+    lastErr = 1;
+    return false;
+  }
+  mounted = true;
+  if (!loadCatalog()) {
+    if (lastErr != 2) LOG("[sky] LittleFS mounted but %s missing/empty\n", CAT_PATH);
+    lastErr = 2;
+    return false;
+  }
+  lastErr = 0;
+  LOG("[sky] LittleFS mounted, %u/%u KB used\n",
+      (unsigned)(LittleFS.usedBytes() / 1024), (unsigned)(LittleFS.totalBytes() / 1024));
+  return true;
+}
+#else
 // SD.begin with no card costs a few hundred ms (CMD0 retries) - only call when idle.
 static bool tryMount() {
   if (!SD.begin(SD_CS_PIN, SPI, SD_HZ, "/sd", 5)) {
@@ -138,6 +167,7 @@ static bool tryMount() {
   LOG("[sky] SD mounted, %llu MB\n", (unsigned long long)(SD.cardSize() / (1024ULL * 1024ULL)));
   return true;
 }
+#endif
 
 void skyBegin() {
   tryMount();
@@ -153,6 +183,13 @@ void skyBegin() {
 
 void skyTick() {
   if (btConnected) return;                   // never stall the bridge
+#if defined(SKY_STORAGE_LITTLEFS)
+  if (ready) return;                          // nothing to hot-plug - just retry a failed mount
+  uint32_t now = millis();
+  if (now - lastTickMs < RETRY_MS) return;
+  lastTickMs = now;
+  tryMount();
+#else
   uint32_t now = millis();
   if (now - lastTickMs < (ready ? CHECK_MS : RETRY_MS)) return;
   lastTickMs = now;
@@ -164,6 +201,7 @@ void skyTick() {
     freeCatalog();
     lastErr = -1;
   }
+#endif
 }
 
 bool skyReady() { return ready; }
@@ -180,7 +218,7 @@ int skyReadInfo(const SkyObj *o, char lines[][200], int maxLines) {
   if (!ready || !o || maxLines <= 0) return 0;
   char path[32];
   snprintf(path, sizeof(path), "/SMARTEQ/INFO/%s.TXT", o->key);
-  File f = SD.open(path, FILE_READ);
+  File f = SKY_FS.open(path, FILE_READ);
   if (!f) return 0;
   rdReset();
   int n = 0;
@@ -193,7 +231,7 @@ bool skyDrawImage(const SkyObj *o, int16_t x, int16_t y) {
   if (!ready || !o) return false;
   char path[32];
   snprintf(path, sizeof(path), "/SMARTEQ/IMG/%s.565", o->key);
-  File f = SD.open(path, FILE_READ);
+  File f = SKY_FS.open(path, FILE_READ);
   if (!f) return false;
   uint8_t hdr[8];
   if (f.read(hdr, 8) != 8 || memcmp(hdr, "R565", 4) != 0) { f.close(); return false; }

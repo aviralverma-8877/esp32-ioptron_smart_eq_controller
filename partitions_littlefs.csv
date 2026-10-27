@@ -1,0 +1,12 @@
+# ESP32 RJ9 Adapter - "esp32dev-littlefs" env, 4 MB flash.
+# Shrinks app0 from the stock huge_app.csv 3 MB (actual use ~1.2 MB) to make
+# room for a LittleFS partition holding the sky catalog (replaces the SD card
+# used by the "esp32dev" env) - see tools/littlefs/build_littlefs.py.
+# Name must stay "spiffs" - that's the default LittleFS.begin() partition label.
+#
+# Name,   Type, SubType, Offset,  Size, Flags
+nvs,      data, nvs,     0x9000,  0x5000,
+otadata,  data, ota,     0xe000,  0x2000,
+app0,     app,  ota_0,   0x10000, 0x190000,
+spiffs,   data, spiffs,  0x1A0000,0x250000,
+coredump, data, coredump,0x3F0000,0x10000,

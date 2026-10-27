@@ -322,7 +322,7 @@ static void menuEvent(BtnEvent e) {
         case 0: case 1: case 2: {
           SkyCat c = menuSel == 0 ? CAT_MESSIER : menuSel == 1 ? CAT_STAR : CAT_PLANET;
           if (skyCount(c) > 0) listEnter(c);
-          else setMsg("no SD catalog", C_WARN, 2500);
+          else setMsg(SKY_NO_CAT_MSG, C_WARN, 2500);
           break;
         }
         case 3: manualSync(); statusEnter(); break;
@@ -625,12 +625,12 @@ static void objEnter(int i) {
   btnCache[0] = sideCache[0] = liveCache[0] = hintCache[0] = 0;
   tft.fillScreen(BG);
 
-  // left box: thumbnail, label, name, type
+  // left box: thumbnail, label, name, type. SKY_THUMB_PX < 96 (LittleFS build)
+  // centers the smaller thumbnail in the same 96x96 placeholder box.
   tft.drawRect(0, 0, LB_W, LB_H, C_BOX);
-  if (!skyDrawImage(obj, 4, 4)) {
-    tft.fillRect(4, 4, 96, 96, C_SEP);
+  tft.fillRect(4, 4, 96, 96, C_SEP);
+  if (!skyDrawImage(obj, 4 + (96 - SKY_THUMB_PX) / 2, 4 + (96 - SKY_THUMB_PX) / 2))
     txt(28, 48, "no image", C_LBL, 1, C_SEP);
-  }
   char b[24];
   if (strlen(obj->label) <= 8) txt(4, 104, obj->label, C_VAL, 2);
   else { snprintf(b, sizeof b, "%.16s", obj->label); txt(4, 108, b, C_VAL, 1); }
@@ -942,7 +942,7 @@ void uiTick() {
   if (resetArmed && millis() - resetArmMs > CONFIRM_MS) resetDisarm();
 
   if ((scr == SC_LIST || scr == SC_OBJECT) && !skyReady() && !(scr == SC_OBJECT && bs == BS_SLEW)) {
-    setMsg("SD card removed", C_WARN, 4000);
+    setMsg(SKY_LOST_MSG, C_WARN, 4000);
     statusEnter();
     return;
   }

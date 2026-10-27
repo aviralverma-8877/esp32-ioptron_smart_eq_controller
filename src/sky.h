@@ -1,7 +1,9 @@
-// sky.h - SD-card sky database: card hot-plug, catalog, per-object info text and
-// thumbnails, plus the small amount of astronomy needed for GoTo.
+// sky.h - sky database (SD card, or on-chip LittleFS - see SKY_STORAGE_LITTLEFS
+// below): card hot-plug (SD only), catalog, per-object info text and thumbnails,
+// plus the small amount of astronomy needed for GoTo.
 //
-// Card layout (built by tools/sdcard/build_sd.py, 8.3 names):
+// File layout, either backend (SD: built by tools/sdcard/build_sd.py, 8.3 names;
+// LittleFS: built by tools/littlefs/build_littlefs.py from the SD card's own data):
 //   /SMARTEQ/CATALOG.CSV     '#' comment lines, then
 //                            key,label,name,type,con,mag,size_arcmin,ra_hours_j2000,dec_deg_j2000
 //                            e.g. M031,M31,Andromeda Galaxy,Galaxy,And,3.4,177.8,0.712319,41.26906
@@ -12,6 +14,22 @@
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
+
+// Storage backend (set by platformio.ini build_flags):
+//   default            SD card, hot-pluggable, 96x96 thumbnails (see tools/sdcard/)
+//   -DSKY_STORAGE_LITTLEFS=1   on-chip LittleFS, always mounted, 64x64 thumbnails
+//                       to fit the partition (see tools/littlefs/, partitions_littlefs.csv)
+#if defined(SKY_STORAGE_LITTLEFS)
+#define SKY_THUMB_PX   64
+#define SKY_BADGE      "FS"
+#define SKY_NO_CAT_MSG "no catalog data"
+#define SKY_LOST_MSG   "catalog data error"
+#else
+#define SKY_THUMB_PX   96
+#define SKY_BADGE      "SD"
+#define SKY_NO_CAT_MSG "no SD catalog"
+#define SKY_LOST_MSG   "SD card removed"
+#endif
 
 enum SkyCat : uint8_t { CAT_MESSIER = 0, CAT_STAR = 1, CAT_PLANET = 2, CAT_COUNT };
 
@@ -29,8 +47,8 @@ struct SkyObj {
 };
 
 // ---- card + catalog --------------------------------------------------------
-void skyBegin();                     // SPI must already be running (displayBegin())
-void skyTick();                      // hot-plug: retries mount / detects removal (cheap, throttled)
+void skyBegin();                     // SD: SPI must already be running (displayBegin())
+void skyTick();                      // SD: hot-plug (retry mount / detect removal); LittleFS: retry mount once
 bool skyReady();                     // card mounted AND catalog loaded (>0 objects)
 int  skyCount(SkyCat c);             // objects in a category (catalog file order)
 const SkyObj *skyGet(SkyCat c, int i);   // nullptr if out of range

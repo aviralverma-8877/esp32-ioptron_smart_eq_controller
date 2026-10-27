@@ -2,5 +2,6 @@
 .vscode/
 build/
 tools/sdcard/.venv/
+tools/littlefs/data/
 __pycache__/
 tools/xlate-test/xlate_test

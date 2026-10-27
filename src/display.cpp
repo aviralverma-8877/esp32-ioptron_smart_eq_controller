@@ -64,9 +64,9 @@ static void header() {
     tft.fillRect(0, 2, SCR_W, 22, BG);
     txt(4, 4, BT_NAME, C_HEAD, 2);
     txt(4 + 12 * 12, 8, st, btConnected ? C_WARN : (linkUp ? C_OK : C_BAD), 1);
-    if (sd) {                                  // "SD" badge: catalog available
+    if (sd) {                                  // catalog badge ("SD" / "FS")
       tft.fillRoundRect(SCR_W - 26, 5, 22, 15, 3, C_OK);
-      txt(SCR_W - 21, 9, "SD", BG, 1, C_OK);
+      txt(SCR_W - 21, 9, SKY_BADGE, BG, 1, C_OK);
     }
   }
 }
