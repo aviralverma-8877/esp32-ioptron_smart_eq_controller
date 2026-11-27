@@ -169,11 +169,23 @@ Credits: planet images NASA/JPL/ESA (public domain), Moon by Gregory H. Revera
 A second PlatformIO environment bakes the same catalog into the ESP32's own
 flash (LittleFS) instead of an SD card — same board, same source, nothing to
 insert. It needs a **4 MB flash module** (the common ESP32-WROOM-32) and trades
-the SD card's 96×96 thumbnails for 64×64 ones to fit: `app0` shrinks from 3 MB
+the SD card's 96×96 thumbnails for 63×63 ones to fit: `app0` shrinks from 3 MB
 to 1.5625 MB (actual firmware use is ~1.2 MB either way) to make room for a
 ~2.3 MB LittleFS partition ([`partitions_littlefs.csv`](partitions_littlefs.csv)).
 Everything else — catalog, menu, GPS sync, GoTo — behaves the same; the status
 header shows an `FS` badge instead of `SD`.
+
+The SD card slot still works in this build and **takes priority**: with a card
+holding `/SMARTEQ/CATALOG.CSV` inserted (at boot or later), the card's catalog
+and full-size thumbnails are used and the badge reads `SD`; remove the card and
+the controller falls back to the on-chip copy. A card without a catalog is
+ignored. While no catalog card is in, the SD slot is polled every 4 s (skipped
+while a Bluetooth client is connected).
+
+The 63×63 size is not arbitrary: LittleFS stores every file in whole 4 KB
+blocks, so a 64×64 thumbnail (8,200 bytes) takes 3 blocks and 178 objects no
+longer fit the 592-block partition (`mklittlefs` drops what doesn't fit).
+`build_littlefs.py` checks this block budget before you build.
 
 ```bash
 python -m venv tools/littlefs/.venv
@@ -185,6 +197,8 @@ pio run -e esp32dev-littlefs -t uploadfs                                    # ca
 
 Run `build_littlefs.py` again after rebuilding the SD card content
 (`tools/sdcard/build_sd.py`) to pick up catalog changes, then re-run `uploadfs`.
+To publish it to the web flasher, run `pio run -e esp32dev-littlefs -t buildfs`
+(copies the image to `docs/firmware/smarteq-littlefs.bin`).
 
 ## Flash from the browser
 
@@ -194,10 +208,17 @@ the board in over USB-C, and click *Connect & Flash*:
 > **https://aviralverma-8877.github.io/esp32-ioptron_smart_eq_controller/**
 
 It lives in [`docs/`](docs/) (GitHub Pages, `main` branch → `/docs`) and uses
-[ESP Web Tools](https://esphome.github.io/esp-web-tools/). Every `pio run`
-regenerates the single-image `docs/firmware/smarteq-rj9-merged.bin` (flash to
-`0x0`) via [`scripts/merge_bin.py`](scripts/merge_bin.py) and bumps
-`docs/manifest.json`.
+[ESP Web Tools](https://esphome.github.io/esp-web-tools/). The page offers both
+builds:
+
+| Choice | Manifest | Images |
+|---|---|---|
+| SD card catalog | `docs/manifest.json` | `firmware/smarteq-rj9-merged.bin` @ `0x0` |
+| On-chip catalog (LittleFS) | `docs/manifest-littlefs.json` | `firmware/smarteq-rj9-littlefs-merged.bin` @ `0x0` + `firmware/smarteq-littlefs.bin` @ `0x1A0000` |
+
+[`scripts/merge_bin.py`](scripts/merge_bin.py) regenerates the merged image and
+bumps the version in that build's manifest on every `pio run`;
+`pio run -e esp32dev-littlefs -t buildfs` refreshes `smarteq-littlefs.bin`.
 
 ## Build & flash locally
 
@@ -208,7 +229,7 @@ pio device monitor            # watch [state] lines @ 115200
 ```
 
 Add `-e esp32dev-littlefs` for the [no-SD-card build](#no-sd-card-esp32dev-littlefs)
-(web flasher / `docs/firmware` stays the SD-card build).
+(refreshes the web flasher's on-chip-catalog option in `docs/firmware`).
 
 ## Pairing
 
@@ -407,7 +428,7 @@ GoTo (verified against iOptron Commander on this mount): `:ST1#` tracking on,
 | `src/gps_sync.*` | automatic + manual (menu) GPS→mount time-zone/time/site sync, time-zone setting (NVS) |
 | `src/display.*` | ST7789 + status page (changed-field redraw) |
 | `src/buttons.*` | 10 ms sampled buttons → up / down (+ hold-repeat) / select / back events |
-| `src/sky.*` | catalog, thumbnails, info text, precession + alt/az; SD hot-plug or (`SKY_STORAGE_LITTLEFS`) on-chip LittleFS |
+| `src/sky.*` | catalog, thumbnails, info text, precession + alt/az; SD hot-plug, with on-chip LittleFS fallback (`SKY_STORAGE_LITTLEFS`) |
 | `src/ephem.*` | planets + Moon positions (JPL elements / Meeus), Sun for the 15° safety guard |
 | `src/ui.*` | screens: status → menu → object list → object page / TRACK; time zone, Bluetooth, factory reset, Debug log |
 | `tools/sdcard/` | builds the SD content + `docs/sdcard/*.zip` |
@@ -416,10 +437,10 @@ GoTo (verified against iOptron Commander on this mount): `:ST1#` tracking on,
 | `tools/scope-sim/` | NexStar hand-controller simulator on a PC serial port (see what an app sends) |
 | `tools/tftshot.py` | turns `shot` / `shotd` console dumps into PNG screenshots / frames |
 | `src/main.cpp` | `setup()` / `loop()` wiring only |
-| `scripts/merge_bin.py` | post-build (`esp32dev`): merged image + manifest for the web flasher |
+| `scripts/merge_bin.py` | post-build (both envs): merged image (+ LittleFS image) + manifest for the web flasher |
 | `scripts/littlefs_datadir.py` | pre-build (`esp32dev-littlefs`): points `-t buildfs`/`uploadfs` at `tools/littlefs/data/` |
 | `partitions_littlefs.csv` | `esp32dev-littlefs` partition table: smaller `app0` + a LittleFS data partition |
-| `docs/` | GitHub Pages web flasher (`index.html`, `manifest.json`, `firmware/`) |
+| `docs/` | GitHub Pages web flasher (`index.html`, `manifest.json`, `manifest-littlefs.json`, `firmware/`) |
 
 ## Notes
 

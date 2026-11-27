@@ -56,9 +56,9 @@ static void header() {
   char st[24];
   if (xlateMode() == XL_NATIVE) snprintf(st, sizeof st, "%s", st0);
   else snprintf(st, sizeof st, "%s  %s", st0, xlateModeName(xlateMode()));   // BT client protocol
-  bool sd = skyReady();
+  const char *sd = skySource();             // "SD" / "FS" badge, nullptr = no catalog
   char h[48];
-  snprintf(h, sizeof h, "%s|%s|%d", BT_NAME, st, sd);
+  snprintf(h, sizeof h, "%s|%s|%s", BT_NAME, st, sd ? sd : "");
   if (strcmp(h, hdrCache)) {
     strncpy(hdrCache, h, sizeof hdrCache - 1);
     tft.fillRect(0, 2, SCR_W, 22, BG);
@@ -66,7 +66,7 @@ static void header() {
     txt(4 + 12 * 12, 8, st, btConnected ? C_WARN : (linkUp ? C_OK : C_BAD), 1);
     if (sd) {                                  // catalog badge ("SD" / "FS")
       tft.fillRoundRect(SCR_W - 26, 5, 22, 15, 3, C_OK);
-      txt(SCR_W - 21, 9, SKY_BADGE, BG, 1, C_OK);
+      txt(SCR_W - 21, 9, sd, BG, 1, C_OK);
     }
   }
 }

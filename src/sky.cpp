@@ -1,5 +1,5 @@
 // sky.cpp - sky database: catalog, info text, RGB565 thumbnails - on an SD card
-// (hot-plug) or on-chip LittleFS (SKY_STORAGE_LITTLEFS, always mounted) - plus
+// (hot-plug), with on-chip LittleFS as fallback (SKY_STORAGE_LITTLEFS) - plus
 // the astronomy needed for GoTo: JD now, site, IAU 1976 precession, alt/az.
 #include "sky.h"
 #include "ephem.h"
@@ -15,12 +15,9 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include <SD.h>
 #if defined(SKY_STORAGE_LITTLEFS)
 #include <LittleFS.h>
-#define SKY_FS LittleFS
-#else
-#include <SD.h>
-#define SKY_FS SD
 #endif
 
 static const char *CAT_PATH  = "/SMARTEQ/CATALOG.CSV";
@@ -31,8 +28,15 @@ static const uint32_t CHECK_MS = 3000;       // mounted: probe for card removal
 static SkyObj  *objs = nullptr;              // one heap block, file order
 static int16_t *idx[CAT_COUNT] = {};
 static int      nObj = 0, nCat[CAT_COUNT] = {};
-static bool     mounted = false, ready = false;
-static int8_t   lastErr = -1;                // 0 ok, 1 no card, 2 bad catalog: log on change only
+static bool     ready = false;
+static uint16_t gen = 0;                     // skyGeneration()
+
+// Where the loaded catalog came from. The SD card always wins: the LittleFS copy
+// (SKY_STORAGE_LITTLEFS build only) is used only while no card with a catalog is in.
+enum Src : uint8_t { SRC_NONE, SRC_SD, SRC_FLASH };
+static Src      src = SRC_NONE;
+static fs::FS  *cur = nullptr;               // filesystem of `src`
+static int8_t   sdErr = -1, flErr = -1;      // 0 ok, 1 mount failed, 2 bad catalog: log on change only
 static uint32_t lastTickMs = 0;
 
 // ---- small helpers --------------------------------------------------------
@@ -86,11 +90,13 @@ static void freeCatalog() {
   for (int c = 0; c < CAT_COUNT; c++) { free(idx[c]); idx[c] = nullptr; nCat[c] = 0; }
   nObj = 0;
   ready = false;
+  src = SRC_NONE; cur = nullptr;
+  gen++;
 }
 
-static bool loadCatalog() {
+static bool loadCatalog(fs::FS &fs) {
   freeCatalog();
-  File f = SKY_FS.open(CAT_PATH, FILE_READ);
+  File f = fs.open(CAT_PATH, FILE_READ);
   if (!f) return false;
   objs = (SkyObj *)malloc(sizeof(SkyObj) * CAP);
   for (int c = 0; c < CAT_COUNT; c++) idx[c] = (int16_t *)malloc(sizeof(int16_t) * CAP);
@@ -128,49 +134,55 @@ static bool loadCatalog() {
   return ready;
 }
 
+// SD.begin with no card costs a few hundred ms (CMD0 retries) - only call when idle.
+// Checks for the catalog before loading it, so a card without one never
+// replaces a working LittleFS catalog.
+static bool trySd() {
+  if (!SD.begin(SD_CS_PIN, SPI, SD_HZ, "/sd", 5)) {
+    if (sdErr != 1) LOG("[sky] SD mount failed (no card?) - retrying every %lus\n", (unsigned long)(RETRY_MS / 1000));
+    sdErr = 1;
+    return false;
+  }
+  if (!SD.exists(CAT_PATH) || !loadCatalog(SD)) {
+    if (sdErr != 2) LOG("[sky] SD mounted but %s missing/empty\n", CAT_PATH);
+    sdErr = 2;
+    SD.end();
+    return false;
+  }
+  src = SRC_SD; cur = &SD;
+  sdErr = 0; flErr = -1;
+  LOG("[sky] using SD card catalog, %llu MB card\n", (unsigned long long)(SD.cardSize() / (1024ULL * 1024ULL)));
+  return true;
+}
+
 #if defined(SKY_STORAGE_LITTLEFS)
-// On-chip flash, always present - mounted once, no hot-plug. Partition built
-// by tools/littlefs/build_littlefs.py + `pio run -e esp32dev-littlefs -t uploadfs`.
-static bool tryMount() {
-  if (!LittleFS.begin(false)) {
-    if (lastErr != 1) LOG("[sky] LittleFS mount failed - flash the catalog data (uploadfs)\n");
-    lastErr = 1;
+// On-chip flash, always present - mounted once, kept mounted. Partition built by
+// tools/littlefs/build_littlefs.py + `pio run -e esp32dev-littlefs -t uploadfs`
+// (or the web flasher's "on-chip catalog" option).
+static bool tryFlash() {
+  static bool flMounted = false;
+  if (!flMounted && !(flMounted = LittleFS.begin(false))) {
+    if (flErr != 1) LOG("[sky] LittleFS mount failed - flash the catalog data (uploadfs)\n");
+    flErr = 1;
     return false;
   }
-  mounted = true;
-  if (!loadCatalog()) {
-    if (lastErr != 2) LOG("[sky] LittleFS mounted but %s missing/empty\n", CAT_PATH);
-    lastErr = 2;
+  if (!loadCatalog(LittleFS)) {
+    if (flErr != 2) LOG("[sky] LittleFS mounted but %s missing/empty\n", CAT_PATH);
+    flErr = 2;
     return false;
   }
-  lastErr = 0;
-  LOG("[sky] LittleFS mounted, %u/%u KB used\n",
+  src = SRC_FLASH; cur = &LittleFS;
+  flErr = 0;
+  LOG("[sky] using LittleFS catalog (no SD catalog), %u/%u KB used\n",
       (unsigned)(LittleFS.usedBytes() / 1024), (unsigned)(LittleFS.totalBytes() / 1024));
   return true;
 }
 #else
-// SD.begin with no card costs a few hundred ms (CMD0 retries) - only call when idle.
-static bool tryMount() {
-  if (!SD.begin(SD_CS_PIN, SPI, SD_HZ, "/sd", 5)) {
-    if (lastErr != 1) LOG("[sky] SD mount failed (no card?) - retrying every %lus\n", (unsigned long)(RETRY_MS / 1000));
-    lastErr = 1;
-    return false;
-  }
-  mounted = true;
-  if (!loadCatalog()) {
-    if (lastErr != 2) LOG("[sky] SD mounted but %s missing/empty\n", CAT_PATH);
-    lastErr = 2;
-    SD.end(); mounted = false;
-    return false;
-  }
-  lastErr = 0;
-  LOG("[sky] SD mounted, %llu MB\n", (unsigned long long)(SD.cardSize() / (1024ULL * 1024ULL)));
-  return true;
-}
+static bool tryFlash() { return false; }
 #endif
 
 void skyBegin() {
-  tryMount();
+  if (!trySd()) tryFlash();
   lastTickMs = millis();
 #if defined(DEBUG_LOG) && DEBUG_LOG
   // self-check: Polaris (2.530301h, +89.264109) J2000 -> 2026.0 should be
@@ -183,28 +195,30 @@ void skyBegin() {
 
 void skyTick() {
   if (btConnected) return;                   // never stall the bridge
-#if defined(SKY_STORAGE_LITTLEFS)
-  if (ready) return;                          // nothing to hot-plug - just retry a failed mount
   uint32_t now = millis();
-  if (now - lastTickMs < RETRY_MS) return;
+  if (now - lastTickMs < (src == SRC_SD ? CHECK_MS : RETRY_MS)) return;
   lastTickMs = now;
-  tryMount();
-#else
-  uint32_t now = millis();
-  if (now - lastTickMs < (ready ? CHECK_MS : RETRY_MS)) return;
-  lastTickMs = now;
-  if (!ready) { tryMount(); return; }
-  if (!SD.exists(CAT_PATH)) {
+  if (src == SRC_SD) {                       // card in use: probe for removal
+    if (SD.exists(CAT_PATH)) return;
     LOG("[sky] SD card removed\n");
     SD.end();
-    mounted = false;
     freeCatalog();
-    lastErr = -1;
+    sdErr = -1;
+    tryFlash();                              // fall back to the on-chip copy, if any
+    return;
   }
-#endif
+  // no catalog, or the LittleFS one: keep looking for a card - it takes priority
+  if (trySd()) return;
+  if (src == SRC_NONE) tryFlash();
 }
 
 bool skyReady() { return ready; }
+
+const char *skySource() {
+  return !ready ? nullptr : src == SRC_SD ? "SD" : "FS";
+}
+
+uint16_t skyGeneration() { return gen; }
 
 int skyCount(SkyCat c) { return (ready && c < CAT_COUNT) ? nCat[c] : 0; }
 
@@ -218,7 +232,7 @@ int skyReadInfo(const SkyObj *o, char lines[][200], int maxLines) {
   if (!ready || !o || maxLines <= 0) return 0;
   char path[32];
   snprintf(path, sizeof(path), "/SMARTEQ/INFO/%s.TXT", o->key);
-  File f = SKY_FS.open(path, FILE_READ);
+  File f = cur->open(path, FILE_READ);
   if (!f) return 0;
   rdReset();
   int n = 0;
@@ -227,17 +241,19 @@ int skyReadInfo(const SkyObj *o, char lines[][200], int maxLines) {
   return n;
 }
 
-bool skyDrawImage(const SkyObj *o, int16_t x, int16_t y) {
+bool skyDrawImage(const SkyObj *o, int16_t x, int16_t y, int16_t px) {
   if (!ready || !o) return false;
   char path[32];
   snprintf(path, sizeof(path), "/SMARTEQ/IMG/%s.565", o->key);
-  File f = SKY_FS.open(path, FILE_READ);
+  File f = cur->open(path, FILE_READ);
   if (!f) return false;
   uint8_t hdr[8];
   if (f.read(hdr, 8) != 8 || memcmp(hdr, "R565", 4) != 0) { f.close(); return false; }
   uint16_t w = hdr[4] | (hdr[5] << 8), h = hdr[6] | (hdr[7] << 8);
-  if (w < 1 || w > 240 || h < 1 || h > 240 ||
+  if (w < 1 || w > px || h < 1 || h > px ||
       f.size() < 8 + (size_t)w * h * 2) { f.close(); return false; }
+  x += (px - w) / 2;                        // center (63x63 LittleFS thumbs in a 96 box)
+  y += (px - h) / 2;
   // SD and TFT share VSPI: read a chunk (no TFT transaction open), then draw it.
   static uint16_t buf[240 * 8];             // 3.75 KB, static (not stack)
   const int rowsPer = 8;

@@ -54,16 +54,35 @@
   .dl a.primary { background: #ffd15c; border-color: #ffd15c; }
   .dl a.primary b { color: #0b0f1a; }
   .dl a.primary span { color: #3a3320; }
+  .builds { display: flex; flex-wrap: wrap; gap: .75rem; margin: 0 0 1.25rem; text-align: left; }
+  .builds label {
+    flex: 1 1 240px; display: block; cursor: pointer;
+    background: #0b0f1a; border: 1px solid #232b3d; border-radius: 10px; padding: .8rem 1rem;
+  }
+  .builds label:has(input:checked) { border-color: #ffd15c; }
+  .builds input { accent-color: #ffd15c; margin: 0 .4rem 0 0; }
+  .builds b { color: #fff; }
+  .builds span { display: block; color: #8b94a7; font-size: .85rem; margin-top: .25rem; }
 </style>
 </head>
 <body>
 <main>
   <h1>ESP32 iOptron SmartEQ Controller</h1>
   <p class="sub">Bluetooth ⇄ RS-232 bridge · LX200 / NexStar translation · status TFT ·
-     automatic GPS time &amp; site sync · SD-card sky catalog with GoTo &amp; tracking</p>
+     automatic GPS time &amp; site sync · sky catalog with GoTo &amp; tracking (SD card or on-chip)</p>
 
   <div class="card flash">
-    <esp-web-install-button manifest="./manifest.json">
+    <div class="builds" role="radiogroup" aria-label="Firmware build">
+      <label><input type="radio" name="build" value="manifest.json" checked>
+        <b>SD card catalog</b>
+        <span>Sky catalog read from a micro-SD card (see <a href="#sdcard">below</a>);
+              96×96 thumbnails.</span></label>
+      <label><input type="radio" name="build" value="manifest-littlefs.json">
+        <b>On-chip catalog (LittleFS)</b>
+        <span>Catalog flashed into the ESP32 itself, no SD card needed; 63×63 thumbnails.
+              An SD card with a catalog is still used first if you insert one.</span></label>
+    </div>
+    <esp-web-install-button id="installer" manifest="./manifest.json">
       <button slot="activate" class="fallback">Connect &amp; Flash</button>
       <span slot="unsupported" class="unsupported">
         Your browser can't do this — use desktop <b>Chrome</b> or <b>Edge</b>
@@ -79,11 +98,14 @@
   <h2>How to flash</h2>
   <ol>
     <li>Plug the board into your computer with a <b>USB-C data cable</b>.</li>
+    <li>Choose a build: <b>SD card catalog</b> or <b>On-chip catalog</b> (no SD card needed —
+        the catalog is written to the ESP32's flash along with the firmware, ~3.7 MB in total).</li>
     <li>Click <b>Connect &amp; Flash</b> and pick the <code>USB-SERIAL CH340</code> port.</li>
     <li>The CH340 auto-reset circuit drops the ESP32 into its bootloader on its
         own — no button holding needed. Wait for it to finish and reboot.</li>
-    <li>On first install, choose <b>Erase device</b> if offered (clears any old
-        Bluetooth pairing / NVS).</li>
+    <li>On first install, and when switching between the two builds, choose <b>Erase device</b>
+        if offered (clears any old Bluetooth pairing / NVS; the builds use different partition
+        layouts).</li>
   </ol>
   <p class="muted">After flashing: pair <b>SmartEQ-RJ9</b> from your phone / PC
      (see <a href="#bluetooth">Bluetooth &amp; Stellarium</a>) and open the serial port it
@@ -173,6 +195,10 @@
     <p style="margin-top:0">Put this on a micro-SD card, insert it in the display module's slot and the
        controller gains an object browser: pick a target, read what it is and how to image it,
        then <b>TRACK</b> — the mount slews there and keeps tracking.</p>
+    <p class="muted">Flashed the <b>On-chip catalog</b> build? You don't need a card — the same catalog
+       is already on the controller (the status header shows <code>FS</code>). A card with a catalog
+       still takes priority (header shows <code>SD</code>, full-size thumbnails); remove it and the
+       controller falls back to the on-chip copy.</p>
     <p class="muted" id="sdmeta">Messier objects, bright stars, planets &amp; the Moon.</p>
     <div class="dl">
       <a class="primary" href="sdcard/smarteq-sd.img.zip" download>
@@ -219,19 +245,27 @@
   <table>
     <tr><th>Offset</th><th>Region</th></tr>
     <tr><td><code>0x1000</code></td><td>2nd-stage bootloader</td></tr>
-    <tr><td><code>0x8000</code></td><td>partition table (<code>huge_app</code>, 3 MB app / no OTA)</td></tr>
+    <tr><td><code>0x8000</code></td><td>partition table — SD build: <code>huge_app</code> (3 MB app / no OTA);
+        on-chip build: <code>partitions_littlefs.csv</code> (1.56 MB app + 2.3 MB LittleFS)</td></tr>
     <tr><td><code>0xe000</code></td><td>boot_app0</td></tr>
     <tr><td><code>0x10000</code></td><td>application</td></tr>
+    <tr><td><code>0x1a0000</code></td><td>LittleFS sky catalog (on-chip build only)</td></tr>
   </table>
-  <p class="muted">All four are combined into
-     <a href="firmware/smarteq-rj9-merged.bin">smarteq-rj9-merged.bin</a>
-     (flash to <code>0x0</code>), rebuilt on every <code>pio run</code>.</p>
+  <p class="muted">The first four are combined into
+     <a href="firmware/smarteq-rj9-merged.bin">smarteq-rj9-merged.bin</a> (SD build) or
+     <a href="firmware/smarteq-rj9-littlefs-merged.bin">smarteq-rj9-littlefs-merged.bin</a>
+     (on-chip build), flashed to <code>0x0</code> and rebuilt on every <code>pio run</code>.
+     The on-chip build adds <a href="firmware/smarteq-littlefs.bin">smarteq-littlefs.bin</a>
+     at <code>0x1a0000</code>.</p>
 
   <h2>Prefer the command line?</h2>
   <pre>pio run -t upload            # from the platformio/ folder
 
 # or, with just the merged image + esptool:
-esptool.py --chip esp32 write_flash 0x0 smarteq-rj9-merged.bin</pre>
+esptool.py --chip esp32 write_flash 0x0 smarteq-rj9-merged.bin
+
+# on-chip catalog build:
+esptool.py --chip esp32 write_flash 0x0 smarteq-rj9-littlefs-merged.bin                                     0x1a0000 smarteq-littlefs.bin</pre>
 
   <p class="muted" style="margin-top:2rem">
     Source &amp; docs:
@@ -241,9 +275,17 @@ esptool.py --chip esp32 write_flash 0x0 smarteq-rj9-merged.bin</pre>
 </main>
 
 <script>
-  fetch('./manifest.json').then(r => r.json()).then(m => {
-    document.getElementById('ver').textContent = 'firmware version: ' + m.version;
-  }).catch(() => { document.getElementById('ver').textContent = ''; });
+  const installer = document.getElementById('installer');
+  function pickBuild(manifest) {
+    installer.setAttribute('manifest', './' + manifest);
+    document.getElementById('ver').textContent = 'firmware: loading…';
+    fetch('./' + manifest).then(r => r.json()).then(m => {
+      document.getElementById('ver').textContent = 'firmware version: ' + m.version;
+    }).catch(() => { document.getElementById('ver').textContent = ''; });
+  }
+  document.querySelectorAll('input[name=build]').forEach(r =>
+    r.addEventListener('change', () => r.checked && pickBuild(r.value)));
+  pickBuild(document.querySelector('input[name=build]:checked').value);
   const mb = n => (n / 1048576).toFixed(1) + ' MB';
   fetch('./sdcard/sdcard.json').then(r => r.json()).then(s => {
     document.getElementById('sdmeta').textContent =

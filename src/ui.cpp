@@ -369,6 +369,7 @@ static const int LIST_Y = 28, ROW_H = 22, ROWS = 9;
 static const int ALT_W = 4 * 12;                  // "-45deg" column, size 2
 static SkyCat listCat = CAT_MESSIER;
 static int    listSel[CAT_COUNT] = {};
+static uint16_t uiSkyGen = 0;                 // skyGeneration() the list/object came from
 static int    listTop = 0;
 static char   rowAlt[ROWS][8];                    // altitude text shown per visible row
 static uint32_t listAltMs = 0;
@@ -409,7 +410,7 @@ static void listTitle() {
 }
 
 static void listEnter(SkyCat c) {
-  scr = SC_LIST; listCat = c;
+  scr = SC_LIST; listCat = c; uiSkyGen = skyGeneration();
   int n = skyCount(c);
   if (listSel[c] >= n || listSel[c] < 0) listSel[c] = 0;
   listTop = listSel[c] / ROWS * ROWS;
@@ -470,6 +471,9 @@ static const int BT_X = 112, BT_Y = 206, BT_W = 126, BT_H = 28;
 static const int SD_X = 244;                              // live text beside the button
 
 enum BtnState { BS_READY, BS_CONFIRM, BS_SLEW, BS_TRACK, BS_MSG };
+// Private copy of the open object: the catalog can be freed / replaced under us
+// (SD card pulled mid-slew, or inserted while on the LittleFS copy).
+static SkyObj        objCopy;
 static const SkyObj *obj = nullptr;
 static int8_t   trackCat = -1;                  // object the last GoTo ended tracking on
 static int      trackIdx = -1;
@@ -618,18 +622,19 @@ static void objEnter(int i) {
   i = (i % n + n) % n;
   const SkyObj *o = skyGet(listCat, i);
   if (!o) return;
-  listSel[listCat] = i; obj = o;
+  objCopy = *o;
+  listSel[listCat] = i; obj = &objCopy;
   scr = SC_OBJECT; flashUntil = 0;
   bool tracked = trackCat == listCat && trackIdx == i && mountTracking();
   bsSet(tracked ? BS_TRACK : BS_READY);
   btnCache[0] = sideCache[0] = liveCache[0] = hintCache[0] = 0;
   tft.fillScreen(BG);
 
-  // left box: thumbnail, label, name, type. SKY_THUMB_PX < 96 (LittleFS build)
-  // centers the smaller thumbnail in the same 96x96 placeholder box.
+  // left box: thumbnail, label, name, type. Smaller (63x63 LittleFS) thumbnails
+  // are centered in the same 96x96 placeholder box.
   tft.drawRect(0, 0, LB_W, LB_H, C_BOX);
   tft.fillRect(4, 4, 96, 96, C_SEP);
-  if (!skyDrawImage(obj, 4 + (96 - SKY_THUMB_PX) / 2, 4 + (96 - SKY_THUMB_PX) / 2))
+  if (!skyDrawImage(obj, 4, 4, 96))
     txt(28, 48, "no image", C_LBL, 1, C_SEP);
   char b[24];
   if (strlen(obj->label) <= 8) txt(4, 104, obj->label, C_VAL, 2);
@@ -941,8 +946,14 @@ void uiTick() {
   if (zeroArmed && millis() - zeroArmMs > CONFIRM_MS) zeroDisarm();
   if (resetArmed && millis() - resetArmMs > CONFIRM_MS) resetDisarm();
 
-  if ((scr == SC_LIST || scr == SC_OBJECT) && !skyReady() && !(scr == SC_OBJECT && bs == BS_SLEW)) {
-    setMsg(SKY_LOST_MSG, C_WARN, 4000);
+  // catalog gone, or swapped (SD card inserted / removed with the LittleFS copy
+  // as fallback): list indices are stale - back to the status page. A slew in
+  // progress keeps its screen (obj is a private copy).
+  if ((scr == SC_LIST || scr == SC_OBJECT) && (!skyReady() || skyGeneration() != uiSkyGen) &&
+      !(scr == SC_OBJECT && bs == BS_SLEW)) {
+    const char *s = skySource();
+    setMsg(!s ? "SD card removed" : s[0] == 'S' ? "now using SD card" : "SD removed: using flash",
+           C_WARN, 4000);
     statusEnter();
     return;
   }

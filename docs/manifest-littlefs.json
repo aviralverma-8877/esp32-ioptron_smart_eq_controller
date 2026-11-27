@@ -1,0 +1,21 @@
+{
+  "name": "ESP32 iOptron SmartEQ Controller (on-chip sky catalog)",
+  "version": "2026.11.27-1312",
+  "home_assistant_domain": "",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32",
+      "parts": [
+        {
+          "path": "firmware/smarteq-rj9-littlefs-merged.bin",
+          "offset": 0
+        },
+        {
+          "path": "firmware/smarteq-littlefs.bin",
+          "offset": 1703936
+        }
+      ]
+    }
+  ]
+}

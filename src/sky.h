@@ -1,6 +1,6 @@
-// sky.h - sky database (SD card, or on-chip LittleFS - see SKY_STORAGE_LITTLEFS
-// below): card hot-plug (SD only), catalog, per-object info text and thumbnails,
-// plus the small amount of astronomy needed for GoTo.
+// sky.h - sky database (SD card, plus on-chip LittleFS as a fallback in the
+// SKY_STORAGE_LITTLEFS build): card hot-plug, catalog, per-object info text and
+// thumbnails, plus the small amount of astronomy needed for GoTo.
 //
 // File layout, either backend (SD: built by tools/sdcard/build_sd.py, 8.3 names;
 // LittleFS: built by tools/littlefs/build_littlefs.py from the SD card's own data):
@@ -15,20 +15,16 @@
 #include <stdint.h>
 #include <stddef.h>
 
-// Storage backend (set by platformio.ini build_flags):
-//   default            SD card, hot-pluggable, 96x96 thumbnails (see tools/sdcard/)
-//   -DSKY_STORAGE_LITTLEFS=1   on-chip LittleFS, always mounted, 64x64 thumbnails
-//                       to fit the partition (see tools/littlefs/, partitions_littlefs.csv)
+// Storage (set by platformio.ini build_flags):
+//   default                    SD card only, hot-pluggable, 96x96 thumbnails (tools/sdcard/)
+//   -DSKY_STORAGE_LITTLEFS=1   SD card first; with no card (or no catalog on it) the
+//                              on-chip LittleFS copy is used, 63x63 thumbnails
+//                              (tools/littlefs/, partitions_littlefs.csv). Inserting a
+//                              catalog card switches to it, removing it falls back.
 #if defined(SKY_STORAGE_LITTLEFS)
-#define SKY_THUMB_PX   64
-#define SKY_BADGE      "FS"
 #define SKY_NO_CAT_MSG "no catalog data"
-#define SKY_LOST_MSG   "catalog data error"
 #else
-#define SKY_THUMB_PX   96
-#define SKY_BADGE      "SD"
 #define SKY_NO_CAT_MSG "no SD catalog"
-#define SKY_LOST_MSG   "SD card removed"
 #endif
 
 enum SkyCat : uint8_t { CAT_MESSIER = 0, CAT_STAR = 1, CAT_PLANET = 2, CAT_COUNT };
@@ -47,9 +43,13 @@ struct SkyObj {
 };
 
 // ---- card + catalog --------------------------------------------------------
-void skyBegin();                     // SD: SPI must already be running (displayBegin())
-void skyTick();                      // SD: hot-plug (retry mount / detect removal); LittleFS: retry mount once
-bool skyReady();                     // card mounted AND catalog loaded (>0 objects)
+void skyBegin();                     // SPI must already be running (displayBegin())
+void skyTick();                      // SD hot-plug (retry mount / detect removal), LittleFS fallback
+bool skyReady();                     // a catalog is loaded (>0 objects)
+const char *skySource();             // "SD" / "FS" (badge), nullptr if no catalog
+// Bumped whenever the catalog is freed or (re)loaded, e.g. an SD card replaces
+// the LittleFS copy. SkyObj pointers / indices from an older generation are stale.
+uint16_t skyGeneration();
 int  skyCount(SkyCat c);             // objects in a category (catalog file order)
 const SkyObj *skyGet(SkyCat c, int i);   // nullptr if out of range
 
@@ -57,10 +57,11 @@ const SkyObj *skyGet(SkyCat c, int i);   // nullptr if out of range
 // lineLen bytes each. Returns the number of lines read (0 if missing).
 int  skyReadInfo(const SkyObj *o, char lines[][200], int maxLines);
 
-// Streams /SMARTEQ/IMG/<key>.565 to the TFT at (x, y). Returns false (and draws
-// nothing) if the file is missing or malformed. Implemented in sky.cpp using
-// the shared `tft` object from display.h.
-bool skyDrawImage(const SkyObj *o, int16_t x, int16_t y);
+// Streams /SMARTEQ/IMG/<key>.565 to the TFT, centered in the box px x px at
+// (x, y) (SD thumbnails are 96x96, LittleFS ones 63x63). Returns false (and
+// draws nothing) if the file is missing, malformed or larger than the box.
+// Implemented in sky.cpp using the shared `tft` object from display.h.
+bool skyDrawImage(const SkyObj *o, int16_t x, int16_t y, int16_t px);
 
 // ---- astronomy ------------------------------------------------------------
 // Current UTC as a Julian Date. Source: GPS when locked, else the mount's
